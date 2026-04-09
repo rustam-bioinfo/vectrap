@@ -70,7 +70,8 @@ def read_fasta(path: str) -> Iterator[Tuple[str, str]]:
         if name is not None: yield name, "".join(chunks).upper()
 
 def rev_comp(seq: str) -> str:
-    return seq.translate(str.maketrans("ACGTacgtNn", "TGCAtgcaNn"))[::-1]
+    # N->N is IUPAC-correct; lowercase handled defensively in case called outside read_fasta
+    return seq.translate(str.maketrans("ACGTNacgtn", "TGCANtgcan"))[::-1]
 
 def scan_regulatory_elements(seq: str, contig: str) -> List[RegulatoryHit]:
     raw_hits = []
