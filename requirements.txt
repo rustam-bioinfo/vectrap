@@ -1,0 +1,6 @@
+# No dependencies required for the core candidate selection modules.
+# The following are required only for the planned homology-based validation modules:
+# diamond>=2.0
+# biopython>=1.81
+# pandas>=1.5
+# tqdm>=4.65
