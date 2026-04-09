@@ -96,7 +96,8 @@ class WindowCall:
     hits: List[Hit]
 
 def rev_comp(seq: str) -> str:
-    return seq.translate(str.maketrans("ACGT", "TGCA"))[::-1]
+    # N->N is IUPAC-correct; lowercase handled defensively in case called outside read_fasta
+    return seq.translate(str.maketrans("ACGTNacgtn", "TGCANtgcan"))[::-1]
 
 def build_catalog(panel: str) -> List[EnzymeInfo]:
     catalog = []
