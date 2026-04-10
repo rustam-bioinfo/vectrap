@@ -3,9 +3,10 @@ import argparse
 import csv
 import gzip
 import re
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, List, Tuple
+from typing import Iterator
 
 CODON_TABLE = {
     'ATA':'I', 'ATC':'I', 'ATT':'I', 'ATG':'M',
@@ -27,16 +28,16 @@ CODON_TABLE = {
 }
 
 MOTIF_CATALOG = {
-    "His_tag":              r"H{6,}",
-    "FLAG_tag":             r"DYKDDDDK",
-    "Strep_tag_II":         r"WSHPQFEK",
-    "TEV_cleavage":         r"ENLYFQ[GS]",
-    "Thrombin_cleavage":    r"LVPRGS",
-    "Flexible_linker_GGS":  r"(?:G{3,4}S){2,}",
-    "Rigid_linker_EAAAK":   r"(?:EAAAK){2,}",
-    "Myc_tag":              r"EQKLISEEDL",
-    "HA_tag":               r"YPYDVPDYA",
-    "V5_tag":               r"GKPIPNPLLGLDST",
+    "His_tag":             r"H{6,}",
+    "FLAG_tag":            r"DYKDDDDK",
+    "Strep_tag_II":        r"WSHPQFEK",
+    "TEV_cleavage":        r"ENLYFQ[GS]",
+    "Thrombin_cleavage":   r"LVPRGS",
+    "Flexible_linker_GGS": r"(?:G{3,4}S){2,}",
+    "Rigid_linker_EAAAK":  r"(?:EAAAK){2,}",
+    "Myc_tag":             r"EQKLISEEDL",
+    "HA_tag":              r"YPYDVPDYA",
+    "V5_tag":              r"GKPIPNPLLGLDST",
 }
 
 COMPILED_MOTIFS = {name: re.compile(pattern) for name, pattern in MOTIF_CATALOG.items()}
@@ -47,12 +48,12 @@ COMPILED_MOTIFS = {name: re.compile(pattern) for name, pattern in MOTIF_CATALOG.
 
 @dataclass
 class ProteinMotifHit:
-    contig:          str
+    contig:           str
     tag_start_0based: int   # absolute DNA coord, 0-based inclusive
     tag_end_0based:   int   # absolute DNA coord, 0-based exclusive
-    strand:          str
-    motif_type:      str
-    matched_aa:      str
+    strand:           str
+    motif_type:       str
+    matched_aa:       str
     orf_start_0based: int   # absolute DNA coord, 0-based inclusive
     orf_end_0based:   int   # absolute DNA coord, 0-based exclusive
     dist_to_start_aa: int   # AA distance from ORF start (M or frame start) to tag
@@ -69,17 +70,21 @@ def rev_comp(seq: str) -> str:
     return seq.translate(_COMP_TABLE)[::-1]
 
 def translate_frame(seq: str, frame: int) -> str:
-    """Translate a DNA sequence starting at the given frame offset."""
+    """Translate *seq* starting at *frame* (0, 1, or 2).
+
+    Uses idiomatic (len // 3) * 3 range so the last incomplete codon is
+    always excluded cleanly rather than relying on the fragile len-2 sentinel.
+    """
     s = seq[frame:]
-    return "".join(CODON_TABLE.get(s[i:i+3], "X") for i in range(0, len(s) - 2, 3))
+    return "".join(CODON_TABLE.get(s[i:i + 3], "X") for i in range(0, (len(s) // 3) * 3, 3))
 
 def open_text(path: str):
     return gzip.open(path, "rt") if str(path).endswith(".gz") else open(path, "rt")
 
-def read_fasta(path: str) -> Iterator[Tuple[str, str]]:
+def read_fasta(path: str) -> Iterator[tuple[str, str]]:
     with open_text(path) as handle:
         name = None
-        chunks: List[str] = []
+        chunks: list[str] = []
         for line in handle:
             line = line.strip()
             if not line:
@@ -95,37 +100,54 @@ def read_fasta(path: str) -> Iterator[Tuple[str, str]]:
             yield name, "".join(chunks).upper()
 
 # --------------------------------------------------------------------------- #
-# Seed-and-extend core                                                         #
+# Coordinate helpers                                                           #
 # --------------------------------------------------------------------------- #
 
 def _aa_to_dna_fwd(frame: int, aa_pos: int) -> int:
-    """Convert an amino acid index in a forward frame to an absolute 0-based
-    DNA coordinate (start of the corresponding codon)."""
+    """AA index in a forward frame -> absolute 0-based DNA start of that codon."""
     return frame + aa_pos * 3
 
 def _aa_to_dna_rev(seq_len: int, frame: int, aa_pos: int) -> int:
-    """Convert an amino acid index in a reverse-complement frame to an absolute
-    0-based DNA coordinate on the *forward* strand.
+    """AA index in a reverse-complement frame -> absolute 0-based DNA start of
+    the corresponding codon on the *forward* strand.
 
-    The reverse-complement sequence has length seq_len.  After slicing off
-    `frame` leading nucleotides the translated region covers nucleotides
-    [frame, seq_len).  Amino acid aa_pos maps to rev-comp position
-    frame + aa_pos*3 (start of codon).  Converting back to the forward
-    strand: fwd_pos = seq_len - 1 - rev_pos for the last nt of that codon,
-    which equals seq_len - frame - aa_pos*3 - 3 (0-based start, exclusive
-    end = seq_len - frame - aa_pos*3).
-
-    Returns the 0-based *start* of the codon on the forward strand (i.e. the
-    smaller coordinate), and the *end* (exclusive) is +3 away."""
+    On the rev-comp string the codon begins at rev_codon_start = frame + aa_pos*3.
+    Mirroring back: the codon occupies forward positions
+        [seq_len - rev_codon_start - 3,  seq_len - rev_codon_start)
+    so this function returns the inclusive start; the exclusive end is +3.
+    """
     rev_codon_start = frame + aa_pos * 3
-    fwd_end_exclusive = seq_len - rev_codon_start        # exclusive
-    fwd_start = fwd_end_exclusive - 3                    # inclusive
-    return fwd_start  # caller adds 3 for the exclusive end
+    return seq_len - rev_codon_start - 3
 
-def scan_sequence(contig: str, seq: str) -> List[ProteinMotifHit]:
-    """Seed-and-extend: translate all 6 frames, seed from motif matches,
-    extend to flanking stop codons, find nearest upstream start codon."""
-    hits: List[ProteinMotifHit] = []
+# --------------------------------------------------------------------------- #
+# Seed-and-extend core                                                         #
+# --------------------------------------------------------------------------- #
+
+def scan_sequence(contig: str, seq: str) -> list[ProteinMotifHit]:
+    """Translate all 6 reading frames, seed from compiled motif matches, then
+    extend each seed to flanking stop codons and find the nearest upstream M.
+
+    Coordinate contract
+    -------------------
+    Forward strand  : orf_start <= tag_start < tag_end <= orf_end  (all fwd)
+    Reverse strand  : orf_start <= tag_start < tag_end <= orf_end  (all fwd)
+                      orf_start is the 5'-most nt of the stop codon (low coord)
+                      orf_end   is the 3'-most nt+1 of the M codon  (high coord)
+    """
+    if len(seq) < 3:
+        warnings.warn(
+            f"Contig '{contig}' is shorter than 3 nt ({len(seq)} nt) "
+            "and cannot be translated. Skipping.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return []
+
+    hits: list[ProteinMotifHit] = []
+    # Deduplication key: same locus + same motif in the same hit should not
+    # appear twice regardless of how overlapping regex matches fire.
+    seen: set[tuple[str, str, int, str]] = set()
+
     seq_len = len(seq)
     rev = rev_comp(seq)
 
@@ -139,68 +161,84 @@ def scan_sequence(contig: str, seq: str) -> List[ProteinMotifHit]:
                     tag_aa_start = m.start()   # inclusive
                     tag_aa_end   = m.end()     # exclusive
 
-                    # ---- extend downstream to the next stop codon ----------
+                    # ---- downstream stop codon ----------------------------
                     stop_pos = aa_seq.find("*", tag_aa_end)
                     if stop_pos == -1:
-                        stop_pos = aa_len      # no stop; use sequence end
+                        stop_pos = aa_len          # sentinel: no stop found
                     dist_to_stop_aa = stop_pos - tag_aa_end
 
-                    # ---- extend upstream to the nearest preceding stop -----
-                    upstream_stop = aa_seq.rfind("*", 0, tag_aa_start)
-                    # upstream_stop == -1 means no stop; frame starts at 0
-                    frame_start_aa = upstream_stop + 1  # aa after stop (or 0)
+                    # ---- upstream stop codon (defines reading-frame window)
+                    upstream_stop  = aa_seq.rfind("*", 0, tag_aa_start)
+                    frame_start_aa = upstream_stop + 1  # 0 when no upstream stop
 
-                    # ---- find nearest start codon (M) between frame_start
-                    #      and the tag -----------------------------------------
-                    segment = aa_seq[frame_start_aa:tag_aa_start]
-                    m_offset = segment.rfind("M")  # last M before the tag
+                    # ---- nearest upstream M within the window -------------
+                    segment  = aa_seq[frame_start_aa:tag_aa_start]
+                    m_offset = segment.rfind("M")
                     if m_offset != -1:
-                        orf_start_aa = frame_start_aa + m_offset
+                        orf_start_aa    = frame_start_aa + m_offset
                         has_start_codon = True
                     else:
-                        orf_start_aa = frame_start_aa
+                        orf_start_aa    = frame_start_aa
                         has_start_codon = False
 
                     dist_to_start_aa = tag_aa_start - orf_start_aa
 
-                    # ---- convert AA coords to absolute DNA coords -----------
+                    # ---- convert AA positions to absolute DNA coords ------
                     if strand == "+":
                         tag_dna_start = _aa_to_dna_fwd(frame, tag_aa_start)
                         tag_dna_end   = _aa_to_dna_fwd(frame, tag_aa_end)
                         orf_dna_start = _aa_to_dna_fwd(frame, orf_start_aa)
-                        orf_dna_end   = _aa_to_dna_fwd(frame, stop_pos) + (
-                            3 if stop_pos < aa_len else 0
-                        )
+                        # orf_dna_end: start of stop codon + 3 if stop exists,
+                        # otherwise the last translated nucleotide (exclusive).
+                        stop_dna      = _aa_to_dna_fwd(frame, stop_pos)
+                        orf_dna_end   = stop_dna + 3 if stop_pos < aa_len else stop_dna
+
                     else:
-                        # For the reverse strand the coordinates are computed
-                        # on the rev-comp string and then mirrored back.
-                        # _aa_to_dna_rev returns the 0-based fwd start of the
-                        # codon; the exclusive end is that value + 3.
-                        #
-                        # The TAG interval on the fwd strand is:
-                        #   [fwd_pos(tag_aa_end - 1),  fwd_pos(tag_aa_start) + 3)
-                        # i.e. the last codon's fwd_start to the first codon's
-                        # fwd_end.  Because on the reverse strand higher AA
-                        # index -> lower fwd coordinate:
+                        # On the reverse strand higher AA index -> lower fwd coord.
+                        # The tag's fwd interval spans from the fwd-start of the
+                        # last tag codon to the fwd-end (exclusive) of the first.
                         tag_dna_start = _aa_to_dna_rev(seq_len, frame, tag_aa_end - 1)
                         tag_dna_end   = _aa_to_dna_rev(seq_len, frame, tag_aa_start) + 3
 
-                        orf_dna_start = _aa_to_dna_rev(seq_len, frame, stop_pos - 1) if stop_pos < aa_len else (
-                            seq_len - frame - (aa_len * 3)
+                        # orf_dna_start: fwd start of the downstream stop codon
+                        # (lowest fwd coord = 5' end of the ORF on fwd strand).
+                        # Bug 1 fix: use stop_pos directly, not stop_pos - 1.
+                        if stop_pos < aa_len:
+                            orf_dna_start = _aa_to_dna_rev(seq_len, frame, stop_pos)
+                        else:
+                            # No stop found; start at the last translatable codon
+                            orf_dna_start = seq_len - frame - aa_len * 3
+
+                        # orf_dna_end: exclusive fwd end of the M codon
+                        # (highest fwd coord = 3' end of the ORF on fwd strand).
+                        orf_dna_end = _aa_to_dna_rev(seq_len, frame, orf_start_aa) + 3
+
+                        # Sanity check: coordinates must be ordered.
+                        # If this fires, the coordinate math above has regressed.
+                        assert orf_dna_start <= tag_dna_start, (
+                            f"[{contig} {strand} frame {frame}] "
+                            f"orf_dna_start {orf_dna_start} > tag_dna_start {tag_dna_start}"
                         )
-                        orf_dna_end   = _aa_to_dna_rev(seq_len, frame, orf_start_aa) + 3
+                        assert tag_dna_start <= tag_dna_end, (
+                            f"[{contig} {strand} frame {frame}] "
+                            f"tag_dna_start {tag_dna_start} > tag_dna_end {tag_dna_end}"
+                        )
+                        assert tag_dna_end <= orf_dna_end, (
+                            f"[{contig} {strand} frame {frame}] "
+                            f"tag_dna_end {tag_dna_end} > orf_dna_end {orf_dna_end}"
+                        )
 
-                        # guard: ensure start <= end
-                        if orf_dna_start > orf_dna_end:
-                            orf_dna_start, orf_dna_end = orf_dna_end, orf_dna_start
-                        if tag_dna_start > tag_dna_end:
-                            tag_dna_start, tag_dna_end = tag_dna_end, tag_dna_start
-
-                    # clamp to sequence bounds
+                    # ---- clamp to sequence bounds -------------------------
                     tag_dna_start = max(0, tag_dna_start)
                     tag_dna_end   = min(seq_len, tag_dna_end)
                     orf_dna_start = max(0, orf_dna_start)
                     orf_dna_end   = min(seq_len, orf_dna_end)
+
+                    # ---- deduplication -----------------------------------
+                    dedup_key = (contig, strand, tag_dna_start, motif_name)
+                    if dedup_key in seen:
+                        continue
+                    seen.add(dedup_key)
 
                     hits.append(ProteinMotifHit(
                         contig=contig,
@@ -235,7 +273,7 @@ def main():
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
-    all_hits: List[ProteinMotifHit] = []
+    all_hits: list[ProteinMotifHit] = []
     for contig, seq in read_fasta(args.input):
         all_hits.extend(scan_sequence(contig, seq))
 
