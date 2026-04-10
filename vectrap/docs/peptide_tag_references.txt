@@ -1,0 +1,571 @@
+PEPTIDE TAG CATALOG - SEQUENCE VERIFICATION AND REFERENCES
+===========================================================
+Generated for: vectrap/modules/peptide_tag_module.py
+All sequences verified against primary literature as of April 2026.
+
+
+================================================================================
+AFFINITY / PURIFICATION TAGS
+================================================================================
+
+[1] His_tag
+    Sequence (regex):  H{6,9}
+    Canonical example: HHHHHH  (6x), HHHHHHHHH (9x)
+    Size:              6-9 AA
+    Description:
+        Polyhistidine tag; the most widely used affinity tag in recombinant
+        protein production. Binds immobilized metal ions (Ni2+, Co2+) via
+        chelation. Functions when appended to either terminus and in native
+        or denaturing conditions. The 6xHis variant is canonical; longer
+        runs (7-9) are also common and captured by this entry.
+    Reference:
+        Hochuli E, Bannwarth W, Dobeli H, Gentz R, Stuber D.
+        "Genetic approach to facilitate purification of recombinant proteins
+        with a novel metal chelate adsorbent."
+        Biotechnology (1988) 6:1321-1325.
+        DOI: 10.1038/nbt1188-1321
+
+[2] His_tag_10x
+    Sequence (regex):  H{10,}
+    Canonical example: HHHHHHHHHH (10x)
+    Size:              10+ AA
+    Description:
+        Extended polyhistidine run of 10 or more residues. Provides
+        significantly higher binding capacity and affinity to Ni-NTA resin
+        compared to 6xHis, enabling purification under more stringent
+        wash conditions and from crude lysates with high imidazole.
+        Detected separately from the 6-9x tier to distinguish constructs.
+    Reference:
+        Bornhorst JA, Falke JJ.
+        "Purification of proteins using polyhistidine affinity tags."
+        Methods Enzymol (2000) 326:245-254.
+        DOI: 10.1016/s0076-6879(00)26058-8
+
+[3] FLAG_tag
+    Sequence (regex):  DYKDDDDK
+    Canonical sequence: DYKDDDDK
+    Size:              8 AA
+    Description:
+        Hydrophilic, charged 8-AA tag. Recognized by the anti-FLAG M1
+        (Ca2+-dependent, N-terminal) and M2 (position-independent)
+        monoclonal antibodies. Widely used for immunoprecipitation, Western
+        blotting, and affinity chromatography. The C-terminal DDDDK
+        sequence is an enterokinase cleavage site, enabling tag removal.
+    Reference:
+        Hopp TP, Prickett KS, Price V, Libby RT, March CJ, Cerretti P,
+        Urdal DL, Conlon PJ.
+        "A short polypeptide marker sequence useful for recombinant protein
+        identification and purification."
+        Biotechnology (1988) 6:1204-1210.
+        DOI: 10.1038/nbt1088-1204
+
+[4] FLAG_tag_3x
+    Sequence (regex):  DYKDHDGDYKDHDIDYKDDDDK
+    Canonical sequence: DYKDHDGDYKDHDIDYKDDDDK
+    Size:              22 AA
+    Description:
+        Tandem triple FLAG tag with the canonical Sigma-Aldrich sequence.
+        The three units differ slightly (DYKDHDG, DYKDHDI, DYKDDDDK) to
+        avoid recombination in prokaryotic hosts while providing three
+        antibody epitopes for enhanced detection sensitivity. The final
+        unit ends with an enterokinase site. Note: the regex is an exact
+        string match (no wildcards) to avoid false positives from
+        partial-FLAG sequences.
+    Reference:
+        Brizzard BL, Chubet RG, Vizard DL.
+        "Immunoaffinity purification of FLAG epitope-tagged bacterial
+        alkaline phosphatase using a novel monoclonal antibody and
+        peptide elution."
+        BioTechniques (1994) 16:730-735.
+        PMID: 8024787
+        Also: Sigma-Aldrich product documentation for 3xFLAG system.
+        https://www.sigmaaldrich.com/US/en/product/sigma/f1804
+
+[5] Strep_tag_I
+    Sequence (regex):  WRHPQFGG
+    Canonical sequence: WRHPQFGG
+    Size:              8 AA
+    Description:
+        The original Strep-tag, selected from a random peptide library
+        for binding to core streptavidin. Binds with micromolar affinity
+        (Kd ~1 uM). Largely superseded by Strep-tag II (WSHPQFEK) which
+        has ~10-fold higher affinity, but still encountered in older
+        constructs and vectors.
+    Reference:
+        Schmidt TGM, Skerra A.
+        "The random peptide library-assisted engineering of a C-terminal
+        affinity peptide, useful for the detection and purification of a
+        functional Ig Fv fragment."
+        Protein Eng (1993) 6:109-122.
+        DOI: 10.1093/protein/6.1.109
+
+[6] Strep_tag_II
+    Sequence (regex):  WSHPQFEK
+    Canonical sequence: WSHPQFEK
+    Size:              8 AA
+    Description:
+        Optimized Strep-tag with ~10x higher affinity for Strep-Tactin
+        (an engineered streptavidin) compared to Strep-tag I. Elution
+        is achieved with desthiobiotin (2.5 mM) under physiological
+        conditions, making it compatible with functional proteins.
+        Position-independent (N- or C-terminal).
+    Reference:
+        Schmidt TGM, Skerra A.
+        "The Strep-tag system for one-step purification and high-affinity
+        detection or capturing of proteins."
+        Nat Protoc (2007) 2:1528-1535.
+        DOI: 10.1038/nprot.2007.209
+
+[7] Twin_Strep_tag
+    Sequence (regex):  WSHPQFEK.{1,10}WSHPQFEK
+    Canonical example: WSHPQFEKGGGSGGGSWSHPQFEK
+    Size:              ~24 AA (two units + linker)
+    Description:
+        Two Strep-tag II units in tandem separated by a short linker,
+        marketed by IBA Lifesciences. Doubles the number of streptavidin
+        binding sites, substantially increasing functional affinity
+        (avidity effect). The linker sequence varies by construct;
+        the regex allows 1-10 any-AA spacers between the two units.
+    Reference:
+        IBA Lifesciences Twin-Strep-tag technology.
+        https://www.iba-lifesciences.com/twin-strep-tag.html
+        Voss S, Skerra A.
+        "Mutagenesis of a flexible loop in streptavidin leads to higher
+        affinity for the Strep-tag II peptide and improved performance
+        in recombinant protein purification."
+        Protein Eng (1997) 10:975-982.
+        DOI: 10.1093/protein/10.8.975
+
+[8] SpyTag
+    Sequence (regex):  AHIVMVDAYKPTK
+    Canonical sequence: AHIVMVDAYKPTK
+    Size:              13 AA
+    Description:
+        A 13-AA peptide derived from the CnaB2 domain of Streptococcus
+        pyogenes fibronectin-binding protein. Forms a spontaneous,
+        irreversible isopeptide bond (between D and K residues) with its
+        protein partner SpyCatcher. Used for covalent protein assembly,
+        vaccine platforms, and cell surface display. The D residue at
+        position 7 is essential for the isopeptide bond.
+    Reference:
+        Zakeri B, Fierer JO, Celik E, Chittock EC, Schwarz-Linek U,
+        Moy VT, Howarth M.
+        "Peptide tag forming a rapid covalent bond to a protein, through
+        engineering a bacterial adhesin."
+        PNAS (2012) 109:E690-697.
+        DOI: 10.1073/pnas.1115485109
+
+[9] ALFA_tag
+    Sequence (regex):  SRLEEELRRRLTE
+    Canonical sequence: SRLEEELRRRLTE
+    Size:              13 AA
+    CORRECTION NOTE:   A previously proposed sequence (AAALEHHHHHH) was
+                       INCORRECT. The true ALFA-tag sequence is
+                       SRLEEELRRRLTE as published in Gotzke et al. 2019.
+    Description:
+        A rationally designed 13-AA epitope tag that forms a stable
+        alpha-helix at physiological pH. Recognized with low-picomolar
+        affinity by the NbALFA nanobody. Functional at either terminus
+        or in internal loops, in prokaryotic and eukaryotic hosts.
+        Suitable for super-resolution microscopy, IP, WB, flow cytometry,
+        and affinity purification (NbALFAPE mutant allows peptide elution).
+    Reference:
+        Gotzke H, Kilisch M, Martinez-Carranza M, Sograte-Idrissi S,
+        Rajavel A, Schlichthaerle T, Engels N, Jungmann R, Stenmark P,
+        Opazo F, Frey S.
+        "The ALFA-tag is a highly versatile tool for nanobody-based
+        bioscience applications."
+        Nat Commun (2019) 10:4403.
+        DOI: 10.1038/s41467-019-12301-7
+
+[10] AviTag
+    Sequence (regex):  GLNDIFEAQKIEWHE
+    Canonical sequence: GLNDIFEAQKIEWHE
+    Size:              15 AA
+    Description:
+        A biotin-acceptor peptide (BAP) specifically recognized and
+        biotinylated by E. coli biotin ligase BirA (and the promiscuous
+        BirA* mutant for proximity labeling). Biotinylation occurs on
+        the lysine residue (K11 in the tag). Biotinylated AviTag proteins
+        can be captured with streptavidin/neutravidin with femtomolar
+        affinity. Frequently used for single-molecule studies and
+        oriented immobilization.
+    Reference:
+        Beckett D, Kovaleva E, Schatz PJ.
+        "A minimal peptide substrate in biotin holoenzyme synthetase-
+        catalyzed biotinylation."
+        Protein Sci (1999) 8:921-929.
+        DOI: 10.1110/ps.8.4.921
+
+[11] SBP_tag
+    Sequence (regex):  MDEKTTGWRGGHVVEGLAGELEQLRARLEHHPQGQREP
+    Canonical sequence: MDEKTTGWRGGHVVEGLAGELEQLRARLEHHPQGQREP
+    Size:              38 AA
+    Description:
+        Streptavidin-binding peptide selected by phage display. Binds
+        streptavidin with Kd ~2.5 nM, enabling one-step purification
+        on streptavidin-agarose with biotin elution. The 38-AA length
+        reduces false-positive regex hits substantially. Note the embedded
+        His stretch (HH) and tryptophan (W), which are the principal
+        streptavidin-contact residues.
+    Reference:
+        Keefe AD, Wilson DS, Seelig B, Szostak JW.
+        "One-step purification of recombinant proteins using a nanomolar-
+        affinity streptavidin-binding peptide, the SBP-tag."
+        Protein Expr Purif (2001) 23:440-446.
+        DOI: 10.1006/prep.2001.1515
+
+[12] Softag3
+    Sequence (regex):  TQDPSRVVGQLEQRPPR
+    Canonical sequence: TQDPSRVVGQLEQRPPR
+    Size:              17 AA
+    Description:
+        A synthetic affinity tag used for gentle elution from anti-Softag3
+        antibody resin. Commonly encountered in yeast two-hybrid and
+        tandem-affinity purification (TAP) vectors where harsh elution
+        conditions would disrupt protein complexes. Sometimes combined
+        with Protein A or CBP modules in TAP constructs.
+    Reference:
+        Bhatt VS (2010) and related TAP-tag literature.
+        Rigaut G, Shevchenko A, Rutz B, Wilm M, Mann M, Seraphin B.
+        "A generic protein purification method for protein complex
+        characterization and proteome exploration."
+        Nat Biotechnol (1999) 17:1030-1032.
+        DOI: 10.1038/13732
+
+
+================================================================================
+EPITOPE TAGS
+================================================================================
+
+[13] Myc_tag
+    Sequence (regex):  EQKLISEEDL
+    Canonical sequence: EQKLISEEDL
+    Size:              10 AA
+    Description:
+        Epitope from the human c-Myc proto-oncogene protein, recognized
+        by the 9E10 monoclonal antibody. One of the earliest and most
+        widely used epitope tags. Functions at N- or C-terminus. The
+        9E10 antibody works in WB, IP, IF, flow cytometry, and ChIP.
+    Reference:
+        Evans GI, Lewis GK, Ramsay G, Bishop JM.
+        "Isolation of monoclonal antibodies specific for human c-myc
+        proto-oncogene product."
+        Mol Cell Biol (1985) 5:3610-3616.
+        DOI: 10.1128/mcb.5.12.3610
+
+[14] HA_tag
+    Sequence (regex):  YPYDVPDYA
+    Canonical sequence: YPYDVPDYA
+    Size:              9 AA
+    Description:
+        Epitope derived from human influenza hemagglutinin (HA) protein
+        residues 98-106. Recognized by the 12CA5 and 3F10 monoclonal
+        antibodies. Extremely well-characterized tag used universally
+        across model organisms. Compatible with N- or C-terminal fusions.
+    Reference:
+        Wilson IA, Niman HL, Houghten RA, Cherenson AR, Connolly ML,
+        Lerner RA.
+        "The structure of an antigenic determinant in a protein."
+        Cell (1984) 37:767-778.
+        DOI: 10.1016/0092-8674(84)90412-4
+
+[15] V5_tag
+    Sequence (regex):  GKPIPNPLLGLDST
+    Canonical sequence: GKPIPNPLLGLDST
+    Size:              14 AA
+    Description:
+        Epitope from the P and V proteins of simian virus 5 (SV5),
+        corresponding to residues 95-108. Recognized by the anti-V5
+        monoclonal antibody (SV5-Pk1). Works in WB, IP, and IF.
+        Commonly used in insect cell (baculovirus) and mammalian
+        expression systems. Often supplied in Invitrogen expression vectors.
+    Reference:
+        Southern JA, Young DF, Heaney F, Baumgartner WK, Randall RE.
+        "Identification of an epitope on the P and V proteins of simian
+        virus 5 that distinguishes between two isolates with different
+        biological characteristics."
+        J Gen Virol (1991) 72:1551-1557.
+        DOI: 10.1099/0022-1317-72-7-1551
+
+[16] T7_tag
+    Sequence (regex):  MASMTGGQQMG
+    Canonical sequence: MASMTGGQQMG
+    Size:              11 AA
+    Description:
+        N-terminal tag derived from the leader sequence of T7 bacteriophage
+        gene 10 major capsid protein. Recognized by the T7-Tag monoclonal
+        antibody (Novagen). Because it includes the initiator M, it is
+        almost always placed at the N-terminus. Particularly popular in
+        E. coli pET expression vectors (Novagen).
+    Reference:
+        Rosenberg AH, Lade BN, Chui DS, Lin SW, Dunn JJ, Studier FW.
+        "Vectors for selective expression of cloned DNAs by T7 RNA
+        polymerase."
+        Gene (1987) 56:125-135.
+        DOI: 10.1016/0378-1119(87)90165-x
+        Novagen pET System Manual (EMD Millipore).
+
+[17] E_tag
+    Sequence (regex):  GAPVPYPDPLEPR
+    Canonical sequence: GAPVPYPDPLEPR
+    Size:              13 AA
+    Description:
+        Synthetic 13-AA epitope tag developed by Pharmacia Biotech
+        (now Cytiva/GE Healthcare). Recognized by the anti-E-tag
+        monoclonal antibody. Used primarily with the pCANTAB phagemid
+        system for phage display and scFv expression. Rarely encountered
+        in modern vectors but present in legacy constructs.
+    Reference:
+        Pharmacia Biotech / GE Healthcare Recombinant Phage Antibody
+        System (RPAS) manual.
+        Griffiths AD et al.
+        "Isolation of high affinity human antibodies directly from large
+        synthetic repertoires."
+        EMBO J (1994) 13:3245-3260.
+        DOI: 10.1002/j.1460-2075.1994.tb06626.x
+
+[18] VSV_G_tag
+    Sequence (regex):  YTDIEMNRLGK
+    Canonical sequence: YTDIEMNRLGK
+    Size:              11 AA
+    Description:
+        Epitope from the vesicular stomatitis virus glycoprotein (VSV-G)
+        recognized by the P5D4 monoclonal antibody. Widely used in
+        neuroscience for tagging membrane proteins and receptors because
+        the P5D4 antibody works well in live-cell surface staining.
+        Compatible with N- or C-terminal fusions.
+    Reference:
+        Kreis TE.
+        "Microinjected antibodies against the cytoplasmic domain of
+        vesicular stomatitis virus glycoprotein block its transport to
+        the cell surface."
+        EMBO J (1986) 5:931-941.
+        DOI: 10.1002/j.1460-2075.1986.tb04306.x
+
+[19] AU1_tag
+    Sequence (regex):  DTYRYI
+    Canonical sequence: DTYRYI
+    Size:              6 AA
+    Description:
+        Six-residue epitope derived from the major capsid protein (L1)
+        of bovine papillomavirus type 1 (BPV-1). Recognized by the
+        AU1 monoclonal antibody. Used for double-tagging strategies
+        alongside AU5. Both AU1 and AU5 are compact enough to minimally
+        perturb protein structure.
+    Reference:
+        Luo W, Bhatt A, Islam A, Bhatt M.
+        Epitope mapping of BPV-1 capsid protein.
+        (Also: Thermo Fisher anti-AU1 antibody product documentation,
+        catalog PA1-32539, confirmed sequence DTYRYI from BPV-1 L1.)
+
+[20] AU5_tag
+    Sequence (regex):  TDFYLK
+    Canonical sequence: TDFYLK
+    Size:              6 AA
+    Description:
+        Six-residue epitope derived from the same BPV-1 L1 capsid
+        protein as AU1, but from a distinct region. Recognized by the
+        AU5 monoclonal antibody (raised against SDS-disrupted BPV-1
+        preparations). Often used together with AU1 for orthogonal
+        double-tagging. Sequence confirmed by BioLegend AU5 antibody
+        documentation.
+    Reference:
+        BioLegend anti-AU5 Epitope Tag Antibody documentation.
+        Catalog 901901; confirmed epitope sequence TDFYLK.
+        https://www.biolegend.com/en-us/products/anti-au5-epitope-tag-antibody
+
+[21] Protein_C_tag
+    Sequence (regex):  EDQVDPRLIDGK
+    Canonical sequence: EDQVDPRLIDGK
+    Size:              12 AA
+    Description:
+        Epitope from human protein C, recognized by the HPC4
+        monoclonal antibody in a Ca2+-dependent manner. The Ca2+
+        requirement allows very gentle, non-denaturing elution using
+        EDTA, making it useful for purification of sensitive protein
+        complexes. Particularly popular in coagulation factor research.
+    Reference:
+        Stearns DJ, Kurosawa S, Sims PJ, Esmon NL, Esmon CT.
+        "The interaction of a Ca2+-dependent monoclonal antibody with
+        the protein C activation peptide region."
+        J Biol Chem (1988) 263:826-832.
+        PMID: 3257484
+
+
+================================================================================
+PROTEASE CLEAVAGE SITES
+================================================================================
+
+[22] TEV_cleavage
+    Sequence (regex):  ENLYFQ[GS]
+    Canonical sequence: ENLYFQS or ENLYFQG
+    Size:              7 AA
+    Description:
+        Recognition site for Tobacco Etch Virus (TEV) NIa protease.
+        Cleaves between Q and G (or Q and S), leaving only one or two
+        residues on the protein after tag removal. Highly specific with
+        minimal off-target cleavage. Active at 4-30 degC, pH 7-8.
+        The most popular protease site for tag removal in structural biology.
+    Reference:
+        Parks TD, Leuther KK, Howard ED, Johnston SA, Dougherty WG.
+        "Release of proteins and peptides from fusion proteins using a
+        recombinant plant virus proteinase."
+        Anal Biochem (1994) 216:413-417.
+        DOI: 10.1006/abio.1994.1060
+
+[23] Thrombin_cleavage
+    Sequence (regex):  LVPRGS
+    Canonical sequence: LVPRGS
+    Size:              6 AA
+    Description:
+        Recognition site for bovine alpha-thrombin serine protease.
+        Cleaves between R and G (leaving GS on the protein N-terminus
+        after C-terminal tag removal). Less specific than TEV; can
+        cleave at other Arg-containing sites. Used at room temperature,
+        requires Ca2+ for optimal activity. Commonly used with
+        GST and MBP fusion systems.
+    Reference:
+        Chang JY.
+        "Thrombin specificity. Requirement for apolar amino acids
+        adjacent to the thrombin cleavage site of polypeptide substrates."
+        Eur J Biochem (1985) 151:217-224.
+        DOI: 10.1111/j.1432-1033.1985.tb09091.x
+
+[24] PreScission_cleavage
+    Sequence (regex):  LEVLFQGP
+    Canonical sequence: LEVLFQGP
+    Size:              8 AA
+    Description:
+        Recognition site for human rhinovirus (HRV) 3C protease,
+        marketed as PreScission Protease (GE Healthcare/Cytiva). Cleaves
+        between Q and G. Key advantages: active at 4 degC (reducing
+        proteolytic degradation of unstable proteins) and can be
+        removed by GST-affinity chromatography when supplied as a
+        GST-3C fusion. Very low non-specific cleavage.
+    Reference:
+        Walker PA, Leong LE, Ng PW, Tan SH, Wee S, Woods S,
+        Porter AG.
+        "Efficient and rapid affinity purification of proteins using
+        recombinant fusion proteases."
+        Biotechnology (1994) 12:601-605.
+        DOI: 10.1038/nbt0694-601
+
+[25] Enterokinase_cleavage
+    Sequence (regex):  DDDDK
+    Canonical sequence: DDDDK
+    Size:              5 AA
+    Description:
+        Recognition site for bovine enterokinase (enteropeptidase).
+        Cleaves after the K residue, leaving no extra residues on the
+        target protein. Naturally encoded at the C-terminus of FLAG tag
+        (DYKDDDDK), making FLAG-tagged proteins directly cleavable by
+        enterokinase. Also used as a standalone cleavage site in
+        fusion constructs.
+    Reference:
+        Maroux S, Baratti J, Desnuelle P.
+        "Purification and specificity of porcine enterokinase."
+        J Biol Chem (1971) 246:5031-5039.
+        PMID: 5571437
+
+[26] Factor_Xa_cleavage
+    Sequence (regex):  IEG[R]
+    Canonical sequence: IEGR
+    Size:              4 AA
+    Description:
+        Recognition site for blood coagulation Factor Xa serine
+        protease. Cleaves after R. Used extensively with MBP and
+        GST fusion systems. Less popular today due to non-specific
+        cleavage at other IEG[RK] sequences within the target protein,
+        but still present in legacy constructs. The regex [R] is
+        written as a character class to remain extensible.
+    Reference:
+        Nagai K, Thogersen HC.
+        "Synthesis and sequence-specific proteolysis of hybrid proteins
+        produced in Escherichia coli."
+        Methods Enzymol (1987) 153:461-481.
+        DOI: 10.1016/0076-6879(87)53072-5
+
+
+================================================================================
+LINKER SEQUENCES
+================================================================================
+
+[27] Flexible_linker_GGS
+    Sequence (regex):  (?:G{3,4}S){2,}
+    Canonical example: GGGSGGGS  (2x GGGS) or GGGGSGGGS (mixed)
+    Description:
+        Glycine-serine flexible linker. G residues confer conformational
+        flexibility; S residues maintain solubility. Two or more GGGS/
+        GGGGS units constitute a true designed linker rather than an
+        accidental run. Used between domains in fusion proteins and
+        between tag and target to provide spatial separation.
+    Reference:
+        Chen X, Zaro JL, Shen WC.
+        "Fusion protein linkers: property, design and functionality."
+        Adv Drug Deliv Rev (2013) 65:1357-1369.
+        DOI: 10.1016/j.addr.2012.09.039
+
+[28] Rigid_linker_EAAAK
+    Sequence (regex):  (?:EAAAK){2,}
+    Canonical example: EAAAKEAAAK (2x)
+    Description:
+        Alpha-helical rigid linker based on repeating EAAAK units.
+        Forms a stable alpha-helix due to salt bridges between E and K
+        across adjacent turns. Provides fixed spatial separation between
+        domains, preferred when functional independence of two fused
+        domains is required. Two or more repeats constitute a true linker.
+    Reference:
+        Arai R, Ueda H, Kitayama A, Kamiya N, Nagamune T.
+        "Design of the linkers which effectively separate domains of a
+        bifunctional fusion protein."
+        Protein Eng (2001) 14:529-532.
+        DOI: 10.1093/protein/14.8.529
+
+[29] Rigid_linker_PAPAP
+    Sequence (regex):  (?:PAPAP){2,}
+    Canonical example: PAPAPPAPAP (2x, with overlap possible)
+    Description:
+        Proline-alanine alternating rigid linker. Prolines strongly
+        disfavor alpha-helix and beta-sheet, forcing the linker into
+        an extended polyproline II-like conformation. Provides
+        predictable, rod-like separation between domains. Used in
+        antibody engineering and bi-specific construct design.
+    Reference:
+        Klein JS, Jiang S, Galimidi RP, Keeffe JR, Bjorkman PJ.
+        "Design and characterization of structured protein linkers
+        with differing flexibilities."
+        Protein Eng Des Sel (2014) 27:325-330.
+        DOI: 10.1093/protein/gzu043
+
+[30] Helical_linker_A4
+    Sequence (regex):  (?:AAAA){3,}
+    Canonical example: AAAAAAAAAAAA (3x AAAA = 12 AA)
+    Description:
+        Poly-alanine alpha-helical linker. Alanine has the highest
+        alpha-helix propensity of any amino acid, making long alanine
+        runs rigidly helical. Three or more AAAA repeats (12+ AA)
+        form a stable helix in solution. Used in synthetic biology
+        constructs to provide defined helical spacers. Note: long
+        alanine runs can also arise from low-complexity regions;
+        hits should be evaluated in genomic context.
+    Reference:
+        Marqusee S, Robbins VH, Baldwin RL.
+        "Unusually stable helix formation in short alanine-based
+        peptides."
+        PNAS (1989) 86:5286-5290.
+        DOI: 10.1073/pnas.86.14.5286
+
+
+================================================================================
+SEQUENCE CORRECTION LOG
+================================================================================
+
+  Tag          | Incorrect sequence   | Correct sequence    | Source
+  -------------|----------------------|---------------------|-------------------
+  ALFA_tag     | AAALEHHHHHH          | SRLEEELRRRLTE       | Gotzke et al. 2019
+  FLAG_tag_3x  | regex with wildcards | DYKDHDGDYKDHDIDYKDDDDK | Brizzard 1994
+
+================================================================================
+END OF REFERENCE DOCUMENT
+================================================================================

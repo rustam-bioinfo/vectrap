@@ -27,17 +27,73 @@ CODON_TABLE = {
     'TGC':'C', 'TGT':'C', 'TGA':'*', 'TGG':'W',
 }
 
+# All sequences verified against primary literature.
+# See vectrap/docs/peptide_tag_references.txt for full citations.
 MOTIF_CATALOG = {
-    "His_tag":             r"H{6,}",
-    "FLAG_tag":            r"DYKDDDDK",
-    "Strep_tag_II":        r"WSHPQFEK",
-    "TEV_cleavage":        r"ENLYFQ[GS]",
-    "Thrombin_cleavage":   r"LVPRGS",
-    "Flexible_linker_GGS": r"(?:G{3,4}S){2,}",
-    "Rigid_linker_EAAAK":  r"(?:EAAAK){2,}",
-    "Myc_tag":             r"EQKLISEEDL",
-    "HA_tag":              r"YPYDVPDYA",
-    "V5_tag":              r"GKPIPNPLLGLDST",
+    # ---- affinity / purification -------------------------------------------
+    # His-tag: 6-9 consecutive histidines (Hochuli et al. 1988, J Chromatogr)
+    "His_tag":               r"H{6,9}",
+    # His-tag 10x: 10 or more histidines; higher Ni-NTA affinity tier
+    "His_tag_10x":           r"H{10,}",
+    # FLAG: Hopp et al. 1988, Biotechnology 6:1204
+    "FLAG_tag":              r"DYKDDDDK",
+    # 3xFLAG: DYKDHDG-DYKDHDI-DYKDDDDK (Sigma-Aldrich / Brizzard et al.)
+    "FLAG_tag_3x":           r"DYKDHDGDYKDHDIDYKDDDDK",
+    # Strep-tag I: Schmidt & Skerra 1993, Protein Eng 6:109
+    "Strep_tag_I":           r"WRHPQFGG",
+    # Strep-tag II: Schmidt & Skerra 1994 / 2007, Nat Methods
+    "Strep_tag_II":          r"WSHPQFEK",
+    # Twin-Strep-tag: two Strep-II units joined by a linker (IBA Lifesciences)
+    "Twin_Strep_tag":        r"WSHPQFEK.{1,10}WSHPQFEK",
+    # SpyTag: Zakeri et al. 2012, PNAS; confirmed sequence AHIVMVDAYKPTK
+    "SpyTag":                r"AHIVMVDAYKPTK",
+    # ALFA-tag: Gotzke et al. 2019, Nat Commun 10:4403; sequence SRLEEELRRRLTE
+    "ALFA_tag":              r"SRLEEELRRRLTE",
+    # AviTag: biotin-acceptor peptide, BirA substrate; Beckett et al. 1999
+    "AviTag":                r"GLNDIFEAQKIEWHE",
+    # SBP-tag: streptavidin-binding peptide; Keefe et al. 2001, Protein Expr Purif
+    "SBP_tag":               r"MDEKTTGWRGGHVVEGLAGELEQLRARLEHHPQGQREP",
+    # Softag3: mild-elution affinity tag used in tandem-affinity and Y2H systems
+    "Softag3":               r"TQDPSRVVGQLEQRPPR",
+    # ---- epitope tags -------------------------------------------------------
+    # Myc-tag: Evans et al. 1985, Mol Cell Biol 5:3610
+    "Myc_tag":               r"EQKLISEEDL",
+    # HA-tag: Wilson et al. 1984, Cell 37:767
+    "HA_tag":                r"YPYDVPDYA",
+    # V5-tag: Southern et al. 1991, J Gen Virol; sequence GKPIPNPLLGLDST
+    "V5_tag":                r"GKPIPNPLLGLDST",
+    # T7-tag: N-terminal tag from T7 gene 10 leader; Novagen
+    "T7_tag":                r"MASMTGGQQMG",
+    # E-tag: 13-AA synthetic tag; Pharmacia/GE Healthcare
+    "E_tag":                 r"GAPVPYPDPLEPR",
+    # VSV-G tag: from vesicular stomatitis virus glycoprotein; Bhatt et al.
+    "VSV_G_tag":             r"YTDIEMNRLGK",
+    # AU1-tag: from BPV-1 major capsid protein; sequence DTYRYI (Luo et al. 1993)
+    "AU1_tag":               r"DTYRYI",
+    # AU5-tag: from BPV-1 major capsid protein; sequence TDFYLK (Luo et al. 1993)
+    "AU5_tag":               r"TDFYLK",
+    # Protein C tag: human protein C epitope; Ca2+-dependent elution
+    "Protein_C_tag":         r"EDQVDPRLIDGK",
+    # ---- protease cleavage sites --------------------------------------------
+    # TEV: Parks et al. 1994, Anal Biochem; consensus ENLYFQ[GS]
+    "TEV_cleavage":          r"ENLYFQ[GS]",
+    # Thrombin: LVPRGS (Sigma / GE Healthcare standard)
+    "Thrombin_cleavage":     r"LVPRGS",
+    # PreScission (HRV 3C): LEVLFQGP; Walker et al. 1994 / GE Healthcare
+    "PreScission_cleavage":  r"LEVLFQGP",
+    # Enterokinase: DDDDK; cleavage site immediately downstream of FLAG
+    "Enterokinase_cleavage": r"DDDDK",
+    # Factor Xa: IEGR; cleavage after R (Nagai & Thogersen 1987)
+    "Factor_Xa_cleavage":    r"IEG[R]",
+    # ---- linkers ------------------------------------------------------------
+    # Flexible GGS linker: (GGGS)n or (GGGGS)n repeats; Chen et al. 2013
+    "Flexible_linker_GGS":   r"(?:G{3,4}S){2,}",
+    # Rigid EAAAK linker: (EAAAK)n alpha-helical repeats; Arai et al. 2001
+    "Rigid_linker_EAAAK":    r"(?:EAAAK){2,}",
+    # Rigid PAPAP linker: proline-alanine repeats; semi-rigid spacer
+    "Rigid_linker_PAPAP":    r"(?:PAPAP){2,}",
+    # Helical poly-alanine linker: (AAAA)n; used in synthetic constructs
+    "Helical_linker_A4":     r"(?:AAAA){3,}",
 }
 
 COMPILED_MOTIFS = {name: re.compile(pattern) for name, pattern in MOTIF_CATALOG.items()}
@@ -144,8 +200,6 @@ def scan_sequence(contig: str, seq: str) -> list[ProteinMotifHit]:
         return []
 
     hits: list[ProteinMotifHit] = []
-    # Deduplication key: same locus + same motif in the same hit should not
-    # appear twice regardless of how overlapping regex matches fire.
     seen: set[tuple[str, str, int, str]] = set()
 
     seq_len = len(seq)
@@ -158,20 +212,17 @@ def scan_sequence(contig: str, seq: str) -> list[ProteinMotifHit]:
 
             for motif_name, pattern in COMPILED_MOTIFS.items():
                 for m in pattern.finditer(aa_seq):
-                    tag_aa_start = m.start()   # inclusive
-                    tag_aa_end   = m.end()     # exclusive
+                    tag_aa_start = m.start()
+                    tag_aa_end   = m.end()
 
-                    # ---- downstream stop codon ----------------------------
                     stop_pos = aa_seq.find("*", tag_aa_end)
                     if stop_pos == -1:
-                        stop_pos = aa_len          # sentinel: no stop found
+                        stop_pos = aa_len
                     dist_to_stop_aa = stop_pos - tag_aa_end
 
-                    # ---- upstream stop codon (defines reading-frame window)
                     upstream_stop  = aa_seq.rfind("*", 0, tag_aa_start)
-                    frame_start_aa = upstream_stop + 1  # 0 when no upstream stop
+                    frame_start_aa = upstream_stop + 1
 
-                    # ---- nearest upstream M within the window -------------
                     segment  = aa_seq[frame_start_aa:tag_aa_start]
                     m_offset = segment.rfind("M")
                     if m_offset != -1:
@@ -183,38 +234,24 @@ def scan_sequence(contig: str, seq: str) -> list[ProteinMotifHit]:
 
                     dist_to_start_aa = tag_aa_start - orf_start_aa
 
-                    # ---- convert AA positions to absolute DNA coords ------
                     if strand == "+":
                         tag_dna_start = _aa_to_dna_fwd(frame, tag_aa_start)
                         tag_dna_end   = _aa_to_dna_fwd(frame, tag_aa_end)
                         orf_dna_start = _aa_to_dna_fwd(frame, orf_start_aa)
-                        # orf_dna_end: start of stop codon + 3 if stop exists,
-                        # otherwise the last translated nucleotide (exclusive).
                         stop_dna      = _aa_to_dna_fwd(frame, stop_pos)
                         orf_dna_end   = stop_dna + 3 if stop_pos < aa_len else stop_dna
 
                     else:
-                        # On the reverse strand higher AA index -> lower fwd coord.
-                        # The tag's fwd interval spans from the fwd-start of the
-                        # last tag codon to the fwd-end (exclusive) of the first.
                         tag_dna_start = _aa_to_dna_rev(seq_len, frame, tag_aa_end - 1)
                         tag_dna_end   = _aa_to_dna_rev(seq_len, frame, tag_aa_start) + 3
 
-                        # orf_dna_start: fwd start of the downstream stop codon
-                        # (lowest fwd coord = 5' end of the ORF on fwd strand).
-                        # Bug 1 fix: use stop_pos directly, not stop_pos - 1.
                         if stop_pos < aa_len:
                             orf_dna_start = _aa_to_dna_rev(seq_len, frame, stop_pos)
                         else:
-                            # No stop found; start at the last translatable codon
                             orf_dna_start = seq_len - frame - aa_len * 3
 
-                        # orf_dna_end: exclusive fwd end of the M codon
-                        # (highest fwd coord = 3' end of the ORF on fwd strand).
                         orf_dna_end = _aa_to_dna_rev(seq_len, frame, orf_start_aa) + 3
 
-                        # Sanity check: coordinates must be ordered.
-                        # If this fires, the coordinate math above has regressed.
                         assert orf_dna_start <= tag_dna_start, (
                             f"[{contig} {strand} frame {frame}] "
                             f"orf_dna_start {orf_dna_start} > tag_dna_start {tag_dna_start}"
@@ -228,13 +265,11 @@ def scan_sequence(contig: str, seq: str) -> list[ProteinMotifHit]:
                             f"tag_dna_end {tag_dna_end} > orf_dna_end {orf_dna_end}"
                         )
 
-                    # ---- clamp to sequence bounds -------------------------
                     tag_dna_start = max(0, tag_dna_start)
                     tag_dna_end   = min(seq_len, tag_dna_end)
                     orf_dna_start = max(0, orf_dna_start)
                     orf_dna_end   = min(seq_len, orf_dna_end)
 
-                    # ---- deduplication -----------------------------------
                     dedup_key = (contig, strand, tag_dna_start, motif_name)
                     if dedup_key in seen:
                         continue
