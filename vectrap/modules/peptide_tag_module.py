@@ -5,7 +5,7 @@ import gzip
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Iterator, List, Tuple
+from typing import Iterator, List, Tuple
 
 CODON_TABLE = {
     'ATA':'I', 'ATC':'I', 'ATT':'I', 'ATG':'M',
@@ -27,47 +27,51 @@ CODON_TABLE = {
 }
 
 MOTIF_CATALOG = {
-    "His_tag": r"H{6,}",
-    "FLAG_tag": r"DYKDDDDK",
-    "Strep_tag_II": r"WSHPQFEK",
-    "TEV_cleavage": r"ENLYFQ[GS]",
-    "Thrombin_cleavage": r"LVPRGS",
-    "Flexible_linker_GGS": r"(?:G{3,4}S){2,}",
-    "Rigid_linker_EAAAK": r"(?:EAAAK){2,}",
-    "Myc_tag": r"EQKLISEEDL",
-    "HA_tag": r"YPYDVPDYA",
-    "V5_tag": r"GKPIPNPLLGLDST",
+    "His_tag":              r"H{6,}",
+    "FLAG_tag":             r"DYKDDDDK",
+    "Strep_tag_II":         r"WSHPQFEK",
+    "TEV_cleavage":         r"ENLYFQ[GS]",
+    "Thrombin_cleavage":    r"LVPRGS",
+    "Flexible_linker_GGS":  r"(?:G{3,4}S){2,}",
+    "Rigid_linker_EAAAK":   r"(?:EAAAK){2,}",
+    "Myc_tag":              r"EQKLISEEDL",
+    "HA_tag":               r"YPYDVPDYA",
+    "V5_tag":               r"GKPIPNPLLGLDST",
 }
 
 COMPILED_MOTIFS = {name: re.compile(pattern) for name, pattern in MOTIF_CATALOG.items()}
 
-@dataclass
-class FastORF:
-    contig: str
-    start: int
-    end: int
-    strand: str
-    aa_seq: str
+# --------------------------------------------------------------------------- #
+# Data structures                                                              #
+# --------------------------------------------------------------------------- #
 
 @dataclass
 class ProteinMotifHit:
-    contig: str
-    orf_start: int
-    orf_end: int
-    strand: str
-    tag_start: int
-    tag_end: int
-    motif_type: str
-    matched_aa: str
-    dist_n_term: int
-    dist_c_term: int
-    orf_len_aa: int
+    contig:          str
+    tag_start_0based: int   # absolute DNA coord, 0-based inclusive
+    tag_end_0based:   int   # absolute DNA coord, 0-based exclusive
+    strand:          str
+    motif_type:      str
+    matched_aa:      str
+    orf_start_0based: int   # absolute DNA coord, 0-based inclusive
+    orf_end_0based:   int   # absolute DNA coord, 0-based exclusive
+    dist_to_start_aa: int   # AA distance from ORF start (M or frame start) to tag
+    dist_to_stop_aa:  int   # AA distance from tag end to downstream stop
+    has_start_codon:  bool
 
-def translate_dna(seq: str) -> str:
-    return "".join(CODON_TABLE.get(seq[i:i+3], 'X') for i in range(0, len(seq) - 2, 3))
+# --------------------------------------------------------------------------- #
+# Sequence utilities                                                           #
+# --------------------------------------------------------------------------- #
+
+_COMP_TABLE = str.maketrans("ATCGNacgtn", "TAGCNtgcan")
 
 def rev_comp(seq: str) -> str:
-    return seq.translate(str.maketrans('ATCGNacgtn', 'TAGCNtgcan'))[::-1]
+    return seq.translate(_COMP_TABLE)[::-1]
+
+def translate_frame(seq: str, frame: int) -> str:
+    """Translate a DNA sequence starting at the given frame offset."""
+    s = seq[frame:]
+    return "".join(CODON_TABLE.get(s[i:i+3], "X") for i in range(0, len(s) - 2, 3))
 
 def open_text(path: str):
     return gzip.open(path, "rt") if str(path).endswith(".gz") else open(path, "rt")
@@ -78,93 +82,198 @@ def read_fasta(path: str) -> Iterator[Tuple[str, str]]:
         chunks: List[str] = []
         for line in handle:
             line = line.strip()
-            if not line: continue
+            if not line:
+                continue
             if line.startswith(">"):
-                if name is not None: yield name, "".join(chunks).upper()
+                if name is not None:
+                    yield name, "".join(chunks).upper()
                 name = line[1:].split()[0]
                 chunks = []
             else:
                 chunks.append(line)
-        if name is not None: yield name, "".join(chunks).upper()
+        if name is not None:
+            yield name, "".join(chunks).upper()
 
-def find_orfs(seq: str, contig: str, min_aa: int = 30) -> List[FastORF]:
-    orfs = []
+# --------------------------------------------------------------------------- #
+# Seed-and-extend core                                                         #
+# --------------------------------------------------------------------------- #
+
+def _aa_to_dna_fwd(frame: int, aa_pos: int) -> int:
+    """Convert an amino acid index in a forward frame to an absolute 0-based
+    DNA coordinate (start of the corresponding codon)."""
+    return frame + aa_pos * 3
+
+def _aa_to_dna_rev(seq_len: int, frame: int, aa_pos: int) -> int:
+    """Convert an amino acid index in a reverse-complement frame to an absolute
+    0-based DNA coordinate on the *forward* strand.
+
+    The reverse-complement sequence has length seq_len.  After slicing off
+    `frame` leading nucleotides the translated region covers nucleotides
+    [frame, seq_len).  Amino acid aa_pos maps to rev-comp position
+    frame + aa_pos*3 (start of codon).  Converting back to the forward
+    strand: fwd_pos = seq_len - 1 - rev_pos for the last nt of that codon,
+    which equals seq_len - frame - aa_pos*3 - 3 (0-based start, exclusive
+    end = seq_len - frame - aa_pos*3).
+
+    Returns the 0-based *start* of the codon on the forward strand (i.e. the
+    smaller coordinate), and the *end* (exclusive) is +3 away."""
+    rev_codon_start = frame + aa_pos * 3
+    fwd_end_exclusive = seq_len - rev_codon_start        # exclusive
+    fwd_start = fwd_end_exclusive - 3                    # inclusive
+    return fwd_start  # caller adds 3 for the exclusive end
+
+def scan_sequence(contig: str, seq: str) -> List[ProteinMotifHit]:
+    """Seed-and-extend: translate all 6 frames, seed from motif matches,
+    extend to flanking stop codons, find nearest upstream start codon."""
+    hits: List[ProteinMotifHit] = []
     seq_len = len(seq)
-    for frame in range(3):
-        aa_seq = translate_dna(seq[frame:])
-        peptides = aa_seq.split('*')
-        pos_aa = 0
-        for pep in peptides:
-            if len(pep) >= min_aa:
-                nt_start = frame + (pos_aa * 3)
-                nt_end = nt_start + (len(pep) * 3)
-                orfs.append(FastORF(contig, nt_start, nt_end, '+', pep))
-            pos_aa += len(pep) + 1
-    rev_seq = rev_comp(seq)
-    for frame in range(3):
-        aa_seq = translate_dna(rev_seq[frame:])
-        peptides = aa_seq.split('*')
-        pos_aa = 0
-        for pep in peptides:
-            if len(pep) >= min_aa:
-                rev_nt_start = frame + (pos_aa * 3)
-                rev_nt_end = rev_nt_start + (len(pep) * 3)
-                fwd_start = seq_len - rev_nt_end
-                fwd_end = seq_len - rev_nt_start
-                orfs.append(FastORF(contig, fwd_start, fwd_end, '-', pep))
-            pos_aa += len(pep) + 1
-    return orfs
+    rev = rev_comp(seq)
 
-def scan_peptide_motifs(orf: FastORF) -> List[ProteinMotifHit]:
-    hits = []
-    orf_aa_len = len(orf.aa_seq)
-    for motif_name, pattern in COMPILED_MOTIFS.items():
-        for match in pattern.finditer(orf.aa_seq):
-            start_aa = match.start()
-            end_aa = match.end()
-            if orf.strand == '+':
-                tag_start = orf.start + (start_aa * 3)
-                tag_end = orf.start + (end_aa * 3)
-            else:
-                tag_end = orf.end - (start_aa * 3)
-                tag_start = orf.end - (end_aa * 3)
-            hits.append(ProteinMotifHit(
-                contig=orf.contig, orf_start=orf.start, orf_end=orf.end, strand=orf.strand,
-                tag_start=tag_start, tag_end=tag_end, motif_type=motif_name,
-                matched_aa=match.group(0), dist_n_term=start_aa,
-                dist_c_term=orf_aa_len - end_aa, orf_len_aa=orf_aa_len
-            ))
+    for strand, dna in (("+", seq), ("-", rev)):
+        for frame in range(3):
+            aa_seq = translate_frame(dna, frame)
+            aa_len = len(aa_seq)
+
+            for motif_name, pattern in COMPILED_MOTIFS.items():
+                for m in pattern.finditer(aa_seq):
+                    tag_aa_start = m.start()   # inclusive
+                    tag_aa_end   = m.end()     # exclusive
+
+                    # ---- extend downstream to the next stop codon ----------
+                    stop_pos = aa_seq.find("*", tag_aa_end)
+                    if stop_pos == -1:
+                        stop_pos = aa_len      # no stop; use sequence end
+                    dist_to_stop_aa = stop_pos - tag_aa_end
+
+                    # ---- extend upstream to the nearest preceding stop -----
+                    upstream_stop = aa_seq.rfind("*", 0, tag_aa_start)
+                    # upstream_stop == -1 means no stop; frame starts at 0
+                    frame_start_aa = upstream_stop + 1  # aa after stop (or 0)
+
+                    # ---- find nearest start codon (M) between frame_start
+                    #      and the tag -----------------------------------------
+                    segment = aa_seq[frame_start_aa:tag_aa_start]
+                    m_offset = segment.rfind("M")  # last M before the tag
+                    if m_offset != -1:
+                        orf_start_aa = frame_start_aa + m_offset
+                        has_start_codon = True
+                    else:
+                        orf_start_aa = frame_start_aa
+                        has_start_codon = False
+
+                    dist_to_start_aa = tag_aa_start - orf_start_aa
+
+                    # ---- convert AA coords to absolute DNA coords -----------
+                    if strand == "+":
+                        tag_dna_start = _aa_to_dna_fwd(frame, tag_aa_start)
+                        tag_dna_end   = _aa_to_dna_fwd(frame, tag_aa_end)
+                        orf_dna_start = _aa_to_dna_fwd(frame, orf_start_aa)
+                        orf_dna_end   = _aa_to_dna_fwd(frame, stop_pos) + (
+                            3 if stop_pos < aa_len else 0
+                        )
+                    else:
+                        # For the reverse strand the coordinates are computed
+                        # on the rev-comp string and then mirrored back.
+                        # _aa_to_dna_rev returns the 0-based fwd start of the
+                        # codon; the exclusive end is that value + 3.
+                        #
+                        # The TAG interval on the fwd strand is:
+                        #   [fwd_pos(tag_aa_end - 1),  fwd_pos(tag_aa_start) + 3)
+                        # i.e. the last codon's fwd_start to the first codon's
+                        # fwd_end.  Because on the reverse strand higher AA
+                        # index -> lower fwd coordinate:
+                        tag_dna_start = _aa_to_dna_rev(seq_len, frame, tag_aa_end - 1)
+                        tag_dna_end   = _aa_to_dna_rev(seq_len, frame, tag_aa_start) + 3
+
+                        orf_dna_start = _aa_to_dna_rev(seq_len, frame, stop_pos - 1) if stop_pos < aa_len else (
+                            seq_len - frame - (aa_len * 3)
+                        )
+                        orf_dna_end   = _aa_to_dna_rev(seq_len, frame, orf_start_aa) + 3
+
+                        # guard: ensure start <= end
+                        if orf_dna_start > orf_dna_end:
+                            orf_dna_start, orf_dna_end = orf_dna_end, orf_dna_start
+                        if tag_dna_start > tag_dna_end:
+                            tag_dna_start, tag_dna_end = tag_dna_end, tag_dna_start
+
+                    # clamp to sequence bounds
+                    tag_dna_start = max(0, tag_dna_start)
+                    tag_dna_end   = min(seq_len, tag_dna_end)
+                    orf_dna_start = max(0, orf_dna_start)
+                    orf_dna_end   = min(seq_len, orf_dna_end)
+
+                    hits.append(ProteinMotifHit(
+                        contig=contig,
+                        tag_start_0based=tag_dna_start,
+                        tag_end_0based=tag_dna_end,
+                        strand=strand,
+                        motif_type=motif_name,
+                        matched_aa=m.group(0),
+                        orf_start_0based=orf_dna_start,
+                        orf_end_0based=orf_dna_end,
+                        dist_to_start_aa=dist_to_start_aa,
+                        dist_to_stop_aa=dist_to_stop_aa,
+                        has_start_codon=has_start_codon,
+                    ))
     return hits
 
+# --------------------------------------------------------------------------- #
+# CLI                                                                          #
+# --------------------------------------------------------------------------- #
+
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-i', '--input', required=True)
-    parser.add_argument('-o', '--outdir', required=True)
-    parser.add_argument('--min-aa', type=int, default=30)
+    parser = argparse.ArgumentParser(
+        description="Detect peptide/affinity tags in nucleotide sequences "
+                    "using a seed-and-extend approach across all 6 reading frames."
+    )
+    parser.add_argument("-i", "--input",  required=True,
+                        help="Input FASTA (plain or .gz)")
+    parser.add_argument("-o", "--outdir", required=True,
+                        help="Output directory")
     args = parser.parse_args()
+
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
+
     all_hits: List[ProteinMotifHit] = []
     for contig, seq in read_fasta(args.input):
-        orfs = find_orfs(seq, contig, args.min_aa)
-        for orf in orfs:
-            all_hits.extend(scan_peptide_motifs(orf))
+        all_hits.extend(scan_sequence(contig, seq))
+
     stem = Path(args.input).name
-    stem = Path(stem[:-3]).stem if stem.endswith('.gz') else Path(stem).stem
-    outfile = outdir / f'{stem}.peptide_tags.tsv'
-    with open(outfile, 'w', newline='') as handle:
-        writer = csv.writer(handle, delimiter='\t')
+    stem = Path(stem[:-3]).stem if stem.endswith(".gz") else Path(stem).stem
+    outfile = outdir / f"{stem}.peptide_tags.tsv"
+
+    with open(outfile, "w", newline="") as handle:
+        writer = csv.writer(handle, delimiter="\t")
         writer.writerow([
-            'contig', 'orf_start_0based', 'orf_end_0based', 'strand',
-            'tag_start_0based', 'tag_end_0based', 'motif_type', 'matched_aa',
-            'dist_n_term_aa', 'dist_c_term_aa', 'orf_len_aa'
+            "contig",
+            "tag_start_0based",
+            "tag_end_0based",
+            "strand",
+            "motif_type",
+            "matched_aa",
+            "orf_start_0based",
+            "orf_end_0based",
+            "dist_to_start_aa",
+            "dist_to_stop_aa",
+            "has_start_codon",
         ])
         for h in all_hits:
             writer.writerow([
-                h.contig, h.orf_start, h.orf_end, h.strand, h.tag_start, h.tag_end,
-                h.motif_type, h.matched_aa, h.dist_n_term, h.dist_c_term, h.orf_len_aa
+                h.contig,
+                h.tag_start_0based,
+                h.tag_end_0based,
+                h.strand,
+                h.motif_type,
+                h.matched_aa,
+                h.orf_start_0based,
+                h.orf_end_0based,
+                h.dist_to_start_aa,
+                h.dist_to_stop_aa,
+                h.has_start_codon,
             ])
-    print(f'Found {len(all_hits)} peptide motif hits. Wrote to {outfile}')
 
-if __name__ == '__main__':
+    print(f"Found {len(all_hits)} peptide motif hits. Wrote to {outfile}")
+
+if __name__ == "__main__":
     main()
