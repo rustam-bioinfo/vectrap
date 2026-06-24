@@ -12,7 +12,7 @@
 
 VecTrap is a high-throughput Python pipeline for the detection and classification of synthetic laboratory vector sequences within raw bacterial genome assemblies and plasmid datasets.
 
-Synthetic vector contamination in public databases (NCBI RefSeq/GenBank) is a well-documented and pervasive problem. Researchers often clone fragments of pathogen genomes into engineered cloning and expression vectors, then accidentally deposit the complete vector backbone sequence alongside the biological target sequence. VecTrap is designed to systematically flag these contaminants before they can corrupt downstream genomic, phylogenetic, or epidemiological analyses.
+Synthetic vector contamination in public databases (NCBI RefSeq/GenBank) is a well-documented and pervasive problem. VecTrap is designed to systematically flag these contaminants before they can corrupt downstream genomic, phylogenetic, or epidemiological analyses.
 
 VecTrap uses a catalog-driven homology scanning strategy backed by an empirically derived sequence database built from more than 100,000 experimentally validated synthetic constructs. The catalog covers the full diversity of engineered vector elements including replication origins, selectable markers, regulatory sequences, recombination sites, and sequencing primer binding sites found in prokaryotic, broad-host-range, and mammalian expression vectors.
 
