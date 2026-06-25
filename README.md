@@ -1,6 +1,6 @@
 # VecTrap
 
-> **Don't let synthetic vector contamination slip into your pathogen assemblies. Catch them with VecTrap.**
+> **Identify sequences of synthetic origin in bacterial genome assemblies and plasmid datasets.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
@@ -11,11 +11,11 @@
 
 ## Overview
 
-VecTrap is a high-throughput Python pipeline for the detection and classification of synthetic laboratory vector sequences within raw bacterial genome assemblies and plasmid datasets.
+VecTrap is a high-throughput Python pipeline for detecting and classifying sequences of synthetic origin in bacterial genome assemblies and plasmid datasets. Its primary use case is identifying assembled contigs that derive fully or partially from engineered laboratory constructs — cloning vectors, expression vectors, lentiviral transfer plasmids, and similar — rather than from the biological sample under study.
 
-Synthetic vector contamination in public databases (NCBI RefSeq/GenBank) is a well-documented and pervasive problem. Researchers often clone fragments of pathogen genomes into engineered cloning and expression vectors, then accidentally deposit the complete vector backbone sequence alongside the biological target sequence. VecTrap is designed to systematically flag these contaminants before they can corrupt downstream genomic, phylogenetic, or epidemiological analyses.
+Synthetic sequence contamination in public databases (NCBI RefSeq/GenBank) is a well-documented problem. Researchers clone fragments of pathogen or environmental genomes into engineered vector backbones, then accidentally deposit the complete construct alongside the intended biological sequence. VecTrap is designed to flag these cases systematically before they corrupt downstream genomic, phylogenetic, or epidemiological analyses.
 
-VecTrap uses a catalog-driven homology scanning strategy backed by an empirically derived sequence database built from more than 100,000 experimentally validated synthetic constructs. The catalog covers the full diversity of engineered vector elements including replication origins, selectable markers, regulatory sequences, recombination sites, and sequencing primer binding sites found in prokaryotic, broad-host-range, and mammalian expression vectors.
+VecTrap uses a catalog-driven homology scanning strategy backed by a curated sequence database of more than 100,000 experimentally validated synthetic construct elements. The catalog covers the full diversity of engineered vector components found in prokaryotic, broad-host-range, and mammalian expression systems.
 
 ---
 
@@ -32,11 +32,11 @@ The catalog consists of 14 FASTA files, one per feature type category, plus a ma
 ## Key Features
 
 - **Catalog-driven homology detection** against a curated database of real synthetic vector sequences
-- **Evidence-tiered classification** -- every hit is classified as `PRIMARY` (standalone proof) or `SUPPORTIVE` (requires genomic context)
-- **Broad vector coverage** -- prokaryotic, broad-host-range, lentiviral, and mammalian expression vector backbones
+- **Evidence-tiered classification** — every hit is assigned to `ENGINEERED` (no natural analog; standalone proof of synthetic origin) or `RECRUITED` (natural sequence recruited into vectors; interpreted in genomic context)
+- **Broad vector coverage** — prokaryotic, broad-host-range, lentiviral, and mammalian expression vector backbones
 - **Bidirectional strand scanning** with precise coordinate mapping back to the forward sense strand
-- **Two output levels** -- per-hit evidence table and per-contig classification (VECTOR / SUSPECTED / CLEAN)
-- **Modular architecture** -- scanning and scoring are fully decoupled
+- **Two output levels** — per-hit evidence table and per-contig classification (`VECTOR` / `SUSPECTED` / `CLEAN`)
+- **Modular architecture** — scanning and scoring are fully decoupled
 
 ---
 
@@ -44,18 +44,20 @@ The catalog consists of 14 FASTA files, one per feature type category, plus a ma
 
 | Category | Evidence Tier | Examples |
 | :--- | :--- | :--- |
-| Replication origins | PRIMARY | ColE1, p15A, RK2, pBBR1, f1, SV40, 2-micron |
-| Transfer origins | PRIMARY | oriT IncP, IncQ, IncW |
-| Recombination sites | PRIMARY | attB/attP, loxP, FRT |
-| Ribosome binding sites | PRIMARY | Shine-Dalgarno variants, synthetic RBS |
-| Selectable markers | SUPPORTIVE | KanR, AmpR, CmR, HygR, PuroR, BlastR |
-| Engineered promoters | SUPPORTIVE | T7, T5, tac, trc, CMV, EF1a, PGK, CAG |
-| Terminators | SUPPORTIVE | T7Te, rrnB, BGH, SV40 polyA |
-| Primer binding sites | SUPPORTIVE | M13, T7, SP6, pUC, T3 sequencing primers |
-| Protein binding sites | SUPPORTIVE | lacO, tetO, cumate operator |
-| Retroviral elements | SUPPORTIVE | LTR sequences, lentiviral packaging signals |
-| Regulatory elements | SUPPORTIVE | IRES, Kozak, splice donor/acceptor |
-| Mobile elements | SUPPORTIVE | Transposon remnants in vector backbones |
+| Synthetic ribosome binding sites | ENGINEERED | BBa-series RBS, optimised Shine-Dalgarno variants |
+| Site-specific recombination sites | ENGINEERED | attB/attP (Lambda, PhiC31), loxP, FRT |
+| Fully synthetic promoters | ENGINEERED | T7, T5, tac, trc, CMV, EF1α, PGK, CAG |
+| Synthetic terminators | ENGINEERED | T7Te, BGH polyA, SV40 polyA |
+| Sequencing primer binding sites | ENGINEERED | M13, T7, SP6, pUC, T3 |
+| Retroviral LTR sequences | ENGINEERED | LTR sequences, lentiviral packaging signals |
+| Synthetic regulatory elements | ENGINEERED | IRES, synthetic Kozak, splice donor/acceptor |
+| Replication origins | RECRUITED | ColE1, p15A, RK2, pBBR1, f1 (natural plasmid/phage ancestors) |
+| Transfer origins | RECRUITED | oriT IncP, IncQ, IncW |
+| Selectable markers | RECRUITED | KanR, AmpR, CmR, HygR, PuroR, BlastR (Tn-derived) |
+| Natural-sequence promoters in vectors | RECRUITED | lac, ara, trp, phoA, tet |
+| Natural terminators in vectors | RECRUITED | rrnB T1/T2, lambda t0 |
+| Protein binding sites | RECRUITED | lacO, tetO, cumate operator |
+| Mobile element remnants | RECRUITED | Tn3, Tn5, Tn10, Tn903, IS borders |
 
 ---
 
@@ -72,7 +74,7 @@ vectrap/
         homology_scanner.py
         scorer.py
     catalogs/
-        README.md      how to obtain catalog files
+        README.md      catalog acquisition and tier reference
 pyproject.toml
 requirements.txt
 ```
@@ -81,7 +83,7 @@ requirements.txt
 
 ## Installation
 
-VecTrap requires Python 3.8 or higher and [minimap2](https://github.com/lh3/minimap2) available in `PATH`.
+VecTrap requires Python 3.8 or higher.
 
 ```bash
 git clone https://github.com/rustam-bioinfo/vectrap.git
@@ -124,9 +126,9 @@ VecTrap writes two output files per run to the specified output directory.
 | `start_0based` | 0-based start coordinate on the forward strand |
 | `end_0based` | 0-based end coordinate on the forward strand |
 | `strand` | `+` for forward, `-` for reverse complement |
-| `evidence_class` | `PRIMARY` or `SUPPORTIVE` |
-| `marker` | Catalog category of the detected element |
-| `detail` | Matched catalog entry identifier |
+| `evidence_tier` | `ENGINEERED` or `RECRUITED` |
+| `feature_class` | Functional class of the detected element |
+| `catalog_id` | Matched catalog entry identifier |
 
 **Per-contig verdict table** (`*.verdicts.tsv`):
 
@@ -134,18 +136,26 @@ VecTrap writes two output files per run to the specified output directory.
 | :--- | :--- |
 | `contig` | FASTA header |
 | `classification` | `VECTOR`, `SUSPECTED`, or `CLEAN` |
-| `primary_hits` | Number of PRIMARY-tier hits |
-| `supportive_score` | Weighted sum of SUPPORTIVE-tier hits |
+| `engineered_hits` | Number of ENGINEERED-tier hits |
+| `recruited_classes` | Number of distinct functional classes with RECRUITED hits |
 | `evidence_summary` | Human-readable evidence breakdown |
 
 ---
 
 ## Evidence Classification
 
-VecTrap partitions every hit into one of two evidence tiers:
+VecTrap assigns every catalog hit to one of two evidence tiers:
 
-- **`PRIMARY`** -- The matched sequence is an unambiguously synthetic, laboratory-designed element (replication origin, transfer origin, recombination site, or synthetic RBS). A single `PRIMARY` hit on a contig is sufficient to classify it as an engineered vector.
-- **`SUPPORTIVE`** -- The matched sequence is strongly associated with synthetic vectors but may also occur in natural contexts (promoter cores, terminator sequences, primer binding sites). These hits contribute to a weighted evidence score and require corroboration to confirm engineering.
+- **`ENGINEERED`** — The matched sequence has no natural biological analog. It was designed in a laboratory and does not exist in wild-type organisms. A single high-confidence ENGINEERED hit is sufficient to classify a contig as synthetic. Examples: T7 promoter, CMV enhancer, BGH polyA signal, attB/FRT recombination sites, synthetic RBS, sequencing primer binding sites, retroviral LTR sequences in non-viral assemblies.
+
+- **`RECRUITED`** — The matched sequence derives from a natural biological source that was recruited into synthetic vectors because it functions well in engineered contexts. These sequences also occur in wild genomes and cannot individually prove synthetic origin. Their evidential weight comes from **functional class diversity**: a contig simultaneously carrying a replication origin, a resistance marker, and a promoter is almost certainly synthetic, whereas a contig with only one of these is ambiguous. Examples: ColE1 origin, KanR/AmpR resistance genes, rrnB terminator, conjugative oriT, lac promoter.
+
+---
+
+## Repository Docs
+
+- [`INFO.md`](INFO.md) — technical internals: algorithms, data structures, coordinate conventions, evidence model, scoring logic, performance notes
+- [`vectrap/catalogs/README.md`](vectrap/catalogs/README.md) — full catalog tier reference with per-category rationale
 
 ---
 
@@ -153,7 +163,7 @@ VecTrap partitions every hit into one of two evidence tiers:
 
 If you use VecTrap in your research, please cite:
 
-> *VecTrap: A catalog-driven pipeline for detecting synthetic vector contamination in bacterial genome assemblies.* (Manuscript in preparation)
+> *VecTrap: A catalog-driven pipeline for detecting sequences of synthetic origin in bacterial genome assemblies.* (Manuscript in preparation)
 
 For the sequence catalog:
 

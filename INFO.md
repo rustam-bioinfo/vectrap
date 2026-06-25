@@ -4,9 +4,9 @@ This file is a technical reference for VecTrap. It explains what the tool does, 
 
 ## Purpose
 
-VecTrap detects synthetic laboratory vector contamination in assembled nucleotide sequences, with the current focus on bacterial genome assemblies and plasmid datasets. The core idea is simple: scan each input contig against a curated catalog of known vector-associated sequence elements, then aggregate the resulting evidence into a contig-level verdict.
+VecTrap detects sequences of synthetic origin in assembled nucleotide sequences, with the current focus on bacterial genome assemblies and plasmid datasets. The core question it answers is: does any part of this assembled sequence derive from an engineered laboratory construct rather than from the biological sample under study?
 
-VecTrap is designed for cases where a deposited or locally assembled sequence may contain engineered backbone fragments such as replication origins, selectable markers, recombination sites, promoters, primer binding sites, terminators, or other laboratory-use elements.
+VecTrap is designed for cases where a deposited or locally assembled sequence may contain engineered backbone fragments — replication origins, selectable markers, recombination sites, synthetic promoters, primer binding sites, terminators, or other laboratory-use elements. It does not rely on database annotations or assembly metadata; it works directly from sequence evidence.
 
 ## High-level workflow
 
@@ -20,8 +20,8 @@ At a high level:
 - Long catalog sequences are searched with mappy/minimap2 indexing.
 - Short catalog sequences are searched with an Aho-Corasick multi-pattern matcher.
 - All raw hits are converted into a unified internal representation.
-- Hits are then scored according to evidence strength.
-- Each contig receives a final verdict such as `VECTOR`, `SUSPECTED`, or `CLEAN`.
+- Hits are scored according to their evidence tier and functional class diversity.
+- Each contig receives a final verdict: `VECTOR`, `SUSPECTED`, or `CLEAN`.
 
 ## Inputs
 
@@ -41,7 +41,7 @@ VecTrap uses two different search strategies because short exact motifs and long
 
 ### Long sequences
 
-Long catalog entries are best handled by an aligner that tolerates mismatches and partial divergence. For this, VecTrap uses **mappy**, the Python binding to **minimap2**. This is appropriate for elements such as longer origins, markers, or regulatory modules where exact matching would be too strict.
+Long catalog entries are best handled by an aligner that tolerates mismatches and partial divergence. For this, VecTrap uses **mappy**, the Python binding to **minimap2**. This is appropriate for elements such as longer origins, resistance markers, or regulatory modules where exact matching would be too strict due to natural sequence variation across strains and vector generations.
 
 ### Short sequences
 
@@ -84,7 +84,7 @@ where:
 - `r_st`, `r_en` = start and end on the catalog sequence
 - `ctg_len` = total length of the catalog entry
 
-This design answers the biologically useful question: how much of the known synthetic element is covered by the hit?
+This answers the biologically useful question: how much of the known synthetic element is covered by the hit?
 
 ### 2. Aho-Corasick automaton for short catalog entries
 
@@ -181,50 +181,55 @@ At runtime, this dictionary is loaded and transformed into the Aho-Corasick auto
 
 ## Evidence model
 
-VecTrap does not treat all detected elements equally. The design distinguishes between stronger and weaker indicators of synthetic origin.
+VecTrap does not treat all detected elements equally. Every catalog category is assigned to one of two evidence tiers based on whether the sequences in that category have a plausible natural biological occurrence.
 
-### PRIMARY evidence
+### ENGINEERED tier
 
-These are elements considered highly specific to engineered constructs, such as:
+Sequences in this tier have no natural biological origin. They were designed in a laboratory, do not exist in wild-type organisms, and their presence in an assembled sequence is essentially unambiguous evidence of synthetic origin. A single high-confidence ENGINEERED hit is sufficient to classify a contig as synthetic.
 
-- replication origins
-- transfer origins
-- recombination sites
-- synthetic ribosome binding sites
+This tier includes:
 
-A single strong PRIMARY hit may be sufficient to classify a contig as vector-derived.
+- Fully synthetic promoters with no direct natural counterpart: T7, T5, tac, trc, CMV, EF1α, PGK, CAG, and similar.
+- Synthetic transcription terminators and polyadenylation signals: T7Te, BGH polyA, SV40 polyA, and similar.
+- Synthetic ribosome binding sites: BBa-series, consensus Shine-Dalgarno variants optimised for expression, and designer RBS sequences that differ substantially from any chromosomal RBS.
+- Site-specific recombination sites introduced by engineering: attB, attP, loxP, FRT, and similar designer variants, distinguished from naturally occurring phage att sites by flanking sequence context.
+- Sequencing primer binding sites: M13, T7, SP6, pUC, T3, and similar. These sequences were designed for laboratory use and have no meaningful natural occurrence.
+- Retroviral LTR sequences used in lentiviral and gamma-retroviral vectors. These appear in bacterial or non-viral eukaryotic assemblies only through deliberate cloning.
+- Synthetic regulatory elements: IRES sequences, synthetic Kozak inserts, synthetic splice donor/acceptor sites, synthetic operator arrays used in inducible expression systems.
 
-### SUPPORTIVE evidence
+### RECRUITED tier
 
-These are elements associated with vectors but not always unique to them, such as:
+Sequences in this tier are derived from natural biological sources that were recruited into synthetic vectors because they function reliably in engineered contexts. They also exist in natural genomes and cannot individually serve as proof of synthetic origin.
 
-- selectable markers
-- promoters
-- terminators
-- primer binding sites
-- regulatory motifs
-- retroviral elements
-- mobile-element-derived fragments
+Their evidential weight comes from **functional class diversity**: a contig simultaneously carrying hits from independent functional classes — for example a replication origin, a resistance marker, and a promoter — is almost certainly synthetic. A contig with only one RECRUITED hit from a single functional class is ambiguous.
 
-SUPPORTIVE hits are aggregated into a weighted score and interpreted in context.
+This tier includes:
+
+- Replication origins such as ColE1, p15A, pBBR1, RK2, pSC101, and f1. These are derived from natural plasmids and bacteriophage and occur in wild-type extrachromosomal elements.
+- Transfer origins (oriT): IncP, IncQ, IncW, and similar. Found in natural conjugative plasmids.
+- Selectable marker coding sequences: aphA (KanR), bla (AmpR), cat (CmR), aac(3) (GentR), hph (HygR), pac (PuroR), bsr (BlastR), and similar. Derived from natural resistance determinants, many originally from transposons.
+- Promoters derived from natural sigma-factor-dependent sequences with minimal engineering: lac, ara, trp, phoA, tet.
+- Terminators derived from natural sequences: rrnB T1/T2, lambda t0, fd.
+- Protein-binding operator sequences in their natural-length form: lacO, tetO arrays.
+- Mobile element remnants: transposon end sequences (Tn3, Tn5, Tn10, Tn903) and IS-element borders found in vector backbones due to historical cloning from natural sources.
+
+The full per-category tier assignments and rationale are in `vectrap/catalogs/README.md`.
 
 ## Contig-level classification
 
-After scanning, hits are aggregated per contig.
+After scanning, hits are aggregated per contig by the scorer.
 
-While the exact logic lives in `scorer.py`, the intended design is:
+The intended classification logic is:
 
-- `VECTOR` — strong direct evidence of synthetic vector origin
-- `SUSPECTED` — supportive but not definitive evidence
-- `CLEAN` — no convincing vector evidence detected
-
-This separation is important because some motifs commonly found in vectors can also occur in natural biological sequences.
+- `VECTOR` — one or more ENGINEERED hits with sufficient identity and coverage, or RECRUITED hits spanning multiple independent functional classes.
+- `SUSPECTED` — RECRUITED hits present but from a limited number of functional classes, or low-confidence ENGINEERED hits.
+- `CLEAN` — no convincing evidence of synthetic origin detected.
 
 ## Verbose logging
 
 When `-v` is used, VecTrap prints timestamped progress messages to stderr.
 
-The log is intended to show:
+The log shows:
 
 - input path
 - catalog path
@@ -249,15 +254,15 @@ Long-sequence scanning performance depends mostly on:
 
 ### Short-sequence performance
 
-The short-sequence scanner was intentionally implemented with Aho-Corasick instead of repeated `str.find()` loops.
+The short-sequence scanner uses Aho-Corasick instead of repeated `str.find()` loops.
 
 This matters because:
 
 - repeated substring search scales poorly with many patterns
-- Aho-Corasick scans each contig once
-- runtime becomes close to linear in total input length, after automaton construction
+- Aho-Corasick scans each contig once regardless of how many patterns are in the catalog
+- runtime becomes close to linear in total input length after automaton construction
 
-In practice, this makes the short-motif phase fast enough even when the catalog contains thousands of entries.
+In practice this makes the short-motif phase fast even when the catalog contains thousands of entries.
 
 ## Output interpretation
 
@@ -269,9 +274,9 @@ Typical raw hit output contains:
 - which scanner found it
 - identity and coverage for longer hits
 
-These hits are then summarized into a per-contig verdict table.
+These hits are summarized into a per-contig verdict table.
 
-A contig with multiple independent vector-associated features is much more suspicious than a contig with only one weak generic promoter-like motif.
+A single ENGINEERED hit is strong evidence on its own. For RECRUITED hits, the signal is the co-occurrence of hits from multiple independent functional classes on the same contig — not the raw number of hits from any one class.
 
 ## Design choices
 
@@ -283,25 +288,24 @@ All hits are projected onto forward-strand contig coordinates. This avoids error
 
 ### Catalog-relative coverage
 
-Coverage is measured on the catalog element, not the query contig. This is more meaningful because the question is whether a known vector element is substantially represented.
+Coverage is measured on the catalog element, not the query contig. This answers the biologically useful question: how much of the known synthetic element is present in the contig?
 
 ### Separate scanning and scoring
 
-Homology detection and biological interpretation are decoupled. This makes the pipeline easier to test, benchmark, and extend.
+Homology detection and biological interpretation are decoupled. This makes the pipeline easier to test, benchmark, and extend independently.
 
 ### Catalog-driven detection
 
-VecTrap does not attempt ab initio prediction of synthetic origin. It is intentionally based on explicit sequence evidence from curated synthetic elements.
+VecTrap does not attempt ab initio prediction of synthetic origin. It is intentionally based on explicit sequence evidence from curated synthetic and recruited elements.
 
 ## Limitations
 
 Users should be aware of several limitations:
 
-- Detection quality depends on catalog completeness.
-- Very short motifs can occur by chance, so context matters.
-- Highly diverged or novel synthetic elements may be missed if they are insufficiently represented in the catalog.
-- Naturally occurring sequences can resemble some supportive synthetic motifs.
-- Final interpretation should consider biology, assembly quality, and neighboring evidence.
+- Detection quality depends on catalog completeness. Novel or highly diverged synthetic elements not represented in the catalog will be missed.
+- Very short exact motifs can occur by chance in natural sequences. RECRUITED hits from a single functional class should not be taken as conclusive evidence.
+- The boundary between ENGINEERED and RECRUITED tiers reflects current biological knowledge. Some elements currently classified as RECRUITED may be reclassified as further evidence of their natural absence accumulates.
+- Final interpretation should consider the biological context, assembly quality, and the full pattern of evidence across the contig.
 
 ## Current module layout
 
@@ -324,7 +328,7 @@ A typical run looks like this:
 5. Scan all contigs with mappy for long-sequence hits.
 6. Scan all contigs with the automaton for short exact hits.
 7. Merge all hits into a single list.
-8. Score evidence per contig.
+8. Score evidence per contig using tier and functional class diversity.
 9. Write hit-level and contig-level output tables.
 
 ## Future extension points
@@ -332,7 +336,7 @@ A typical run looks like this:
 The current design allows several natural extensions:
 
 - additional evidence types or catalog categories
-- alternative scoring models
+- refined scoring weights per functional class
 - interval merging of overlapping nearby hits
 - reporting of clustered vector architectures
 - species- or context-aware false-positive suppression
@@ -345,6 +349,6 @@ If VecTrap is used in research, cite the software repository and the Zenodo-host
 ## Related files
 
 - `README.md` — user-facing overview and quick start
+- `vectrap/catalogs/README.md` — full catalog tier reference with per-category rationale
 - `vectrap/modules/homology_scanner.py` — technical scanning implementation
 - `vectrap/modules/scorer.py` — classification logic
-- `vectrap/catalogs/README.md` — catalog acquisition and preparation
