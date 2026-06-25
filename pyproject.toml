@@ -25,6 +25,7 @@ classifiers = [
 dependencies = [
     "biopython>=1.83",
     "mappy>=2.24",
+    "numpy>=1.22,<2.1",
 ]
 
 [project.scripts]

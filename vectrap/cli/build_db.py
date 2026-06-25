@@ -20,6 +20,8 @@ Outputs (written to the catalog directory)
 import argparse
 import hashlib
 import pickle
+import shutil
+import subprocess
 import sys
 import urllib.request
 from pathlib import Path
@@ -98,6 +100,47 @@ def verify_manifest(catalog_dir: Path) -> None:
     print("Catalog verification passed.")
 
 
+def _build_mmi(long_fasta: Path, mmi_path: Path) -> None:
+    """Build a minimap2 .mmi index from *long_fasta*.
+
+    Strategy
+    --------
+    1. Try ``mappy.Aligner`` with ``fn_idx_out`` -- available in mappy >= 2.28.
+    2. Fall back to the ``minimap2`` binary if it is on PATH.
+    3. Raise an informative error if neither works.
+    """
+    # Attempt 1: mappy.Aligner with fn_idx_out (mappy >= 2.28)
+    try:
+        aligner = mappy.Aligner(
+            fn_idx_in=str(long_fasta),
+            fn_idx_out=str(mmi_path),
+            preset="map-ont",
+            best_n=10,
+        )
+        if aligner:
+            return  # index written as a side-effect of construction
+    except TypeError:
+        pass  # older mappy doesn't accept fn_idx_out
+
+    # Attempt 2: minimap2 binary
+    mm2 = shutil.which("minimap2")
+    if mm2:
+        result = subprocess.run(
+            [mm2, "-d", str(mmi_path), str(long_fasta)],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            return
+        print("minimap2 stderr:", result.stderr, file=sys.stderr)
+
+    raise RuntimeError(
+        "Could not build the mappy index.\n"
+        "Your mappy version does not support fn_idx_out and minimap2 is not on PATH.\n"
+        "Install minimap2 (conda install -c bioconda minimap2) or upgrade mappy "
+        "(pip install 'mappy>=2.28')."
+    )
+
+
 def build_indexes(catalog_dir: Path) -> None:
     long_records = []
     short_index: dict = {}
@@ -123,14 +166,10 @@ def build_indexes(catalog_dir: Path) -> None:
     write_fasta(long_records, long_fasta)
     print(f"  wrote {long_fasta}")
 
-    # Build mappy index (.mmi) -- no external binary required
+    # Build .mmi index
     mmi_path = catalog_dir / "combined_long.mmi"
     print("  building mappy index ...")
-    aligner = mappy.Aligner(str(long_fasta), preset="map-ont", best_n=10)
-    if not aligner:
-        print("ERROR: mappy could not index the long catalog FASTA.", file=sys.stderr)
-        sys.exit(1)
-    aligner.dump_index(str(mmi_path))
+    _build_mmi(long_fasta, mmi_path)
     print(f"  wrote {mmi_path}")
 
     # Write k-mer hash for short sequences
