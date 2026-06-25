@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "vectrap"
+version = "0.1.0"
+description = "Detection and classification of synthetic vector contamination in bacterial genome assemblies"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+keywords = ["bioinformatics", "vector contamination", "synthetic vectors", "genome assembly"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "biopython>=1.83",
+]
+
+[project.scripts]
+vectrap = "vectrap.cli.run:main"
+vectrap-build-db = "vectrap.cli.build_db:main"
+
+[project.urls]
+Homepage = "https://github.com/rustam-bioinfo/vectrap"
+Repository = "https://github.com/rustam-bioinfo/vectrap"
+"Bug Tracker" = "https://github.com/rustam-bioinfo/vectrap/issues"
+Dataset = "https://doi.org/10.5281/zenodo.20844271"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["vectrap*"]
