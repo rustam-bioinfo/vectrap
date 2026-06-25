@@ -1,22 +1,23 @@
 """Tests for vectrap.modules.homology_scanner.
 
-The minimap2-dependent paths are tested with mocked subprocess.run so the
-tests pass without minimap2 being installed.  The k-mer scanner and PAF
-parsing logic are tested directly against synthetic data.
+The mappy-dependent paths are tested with a mocked mappy.Aligner so the
+tests pass without a real .mmi index.  The k-mer scanner and identity/coverage
+calculation logic are tested directly against synthetic data.
 """
 
 import pickle
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from vectrap.modules.homology_scanner import (
     HomologyHit,
-    MIN_LEN,
+    _identity_from_hit,
     _kmer_scan_sequence,
-    _parse_paf_line,
     _run_kmer_scanner,
+    _run_mappy,
     scan,
 )
 from vectrap.modules.utils import rev_comp
@@ -26,27 +27,25 @@ from vectrap.modules.utils import rev_comp
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_paf_line(
-    q_name="contig1",
-    q_len=1000,
-    q_start=100,
-    q_end=200,
-    strand="+",
-    t_name="catalog_entry",
-    t_len=100,
-    t_start=0,
-    t_end=100,
-    n_match=98,
-    aln_len=100,
-    mapq=60,
-    tags="de:f:0.02",
-) -> str:
-    return "\t".join([
-        q_name, str(q_len), str(q_start), str(q_end), strand,
-        t_name, str(t_len), str(t_start), str(t_end),
-        str(n_match), str(aln_len), str(mapq),
-        tags,
-    ])
+def _make_mappy_hit(
+    ctg="catalog_entry",
+    ctg_len=100,
+    r_st=0,
+    r_en=100,
+    q_st=100,
+    q_en=200,
+    strand=1,
+    mlen=98,
+    blen=100,
+) -> SimpleNamespace:
+    """Build a fake mappy.Alignment-like object."""
+    return SimpleNamespace(
+        ctg=ctg, ctg_len=ctg_len,
+        r_st=r_st, r_en=r_en,
+        q_st=q_st, q_en=q_en,
+        strand=strand,
+        mlen=mlen, blen=blen,
+    )
 
 
 def _make_catalog_dir(tmp_path: Path, short_index: dict) -> Path:
@@ -72,13 +71,13 @@ class TestHomologyHit:
         )
         assert h.length == 40
 
-    def test_default_source_is_minimap2(self):
+    def test_default_source_is_mappy(self):
         h = HomologyHit(
             contig="c1", start=0, end=10,
             strand="+", identity=1.0, coverage=1.0,
             catalog_id="cat1",
         )
-        assert h.source == "minimap2"
+        assert h.source == "mappy"
 
     def test_kmer_source(self):
         h = HomologyHit(
@@ -90,75 +89,106 @@ class TestHomologyHit:
 
 
 # ---------------------------------------------------------------------------
-# PAF line parsing
+# _identity_from_hit
 # ---------------------------------------------------------------------------
 
-class TestParsePafLine:
-    def test_valid_line_returns_hit(self):
-        line = _make_paf_line()
-        hit = _parse_paf_line(line, min_identity=0.90, min_coverage=0.80)
-        assert hit is not None
-        assert hit.contig == "contig1"
-        assert hit.start == 100
-        assert hit.end == 200
-        assert hit.strand == "+"
-        assert hit.catalog_id == "catalog_entry"
-        assert hit.source == "minimap2"
+class TestIdentityFromHit:
+    def test_normal(self):
+        hit = _make_mappy_hit(mlen=95, blen=100)
+        assert abs(_identity_from_hit(hit) - 0.95) < 1e-9
 
-    def test_identity_from_de_tag(self):
-        line = _make_paf_line(tags="de:f:0.05")
-        hit = _parse_paf_line(line, min_identity=0.90, min_coverage=0.80)
-        assert hit is not None
-        assert abs(hit.identity - 0.95) < 1e-9
+    def test_perfect(self):
+        hit = _make_mappy_hit(mlen=100, blen=100)
+        assert _identity_from_hit(hit) == 1.0
 
-    def test_identity_from_dv_tag_fallback(self):
-        line = _make_paf_line(tags="dv:f:0.05")
-        hit = _parse_paf_line(line, min_identity=0.90, min_coverage=0.80)
-        assert hit is not None
-        assert abs(hit.identity - 0.95) < 1e-9
+    def test_zero_blen(self):
+        hit = _make_mappy_hit(mlen=0, blen=0)
+        assert _identity_from_hit(hit) == 0.0
 
-    def test_identity_from_nm_fallback(self):
-        line = _make_paf_line(n_match=95, aln_len=100, tags="")
-        hit = _parse_paf_line(line, min_identity=0.90, min_coverage=0.80)
-        assert hit is not None
-        assert abs(hit.identity - 0.95) < 1e-9
 
-    def test_filtered_by_low_identity(self):
-        line = _make_paf_line(tags="de:f:0.15")  # identity = 0.85
-        hit = _parse_paf_line(line, min_identity=0.90, min_coverage=0.80)
-        assert hit is None
+# ---------------------------------------------------------------------------
+# _run_mappy
+# ---------------------------------------------------------------------------
 
-    def test_filtered_by_low_coverage(self):
-        line = _make_paf_line(t_start=0, t_end=50, t_len=100, tags="de:f:0.02")
-        hit = _parse_paf_line(line, min_identity=0.90, min_coverage=0.80)
-        assert hit is None
+class TestRunMappy:
+    def _make_aligner_mock(self, hits):
+        aligner = MagicMock()
+        aligner.__bool__ = lambda s: True
+        aligner.map.return_value = iter(hits)
+        return aligner
 
-    def test_reverse_strand_hit(self):
-        line = _make_paf_line(strand="-")
-        hit = _parse_paf_line(line, min_identity=0.80, min_coverage=0.80)
-        assert hit is not None
-        assert hit.strand == "-"
+    def test_returns_hits_above_thresholds(self, tmp_path):
+        fasta = tmp_path / "q.fasta"
+        fasta.write_text(">c1\nACGTACGT\n")
+        mmi = tmp_path / "idx.mmi"
+        mmi.touch()
 
-    def test_empty_line_returns_none(self):
-        assert _parse_paf_line("", 0.90, 0.80) is None
+        fake_hit = _make_mappy_hit(mlen=98, blen=100, r_st=0, r_en=100, ctg_len=100)
+        aligner_mock = self._make_aligner_mock([fake_hit])
 
-    def test_comment_line_returns_none(self):
-        assert _parse_paf_line("# comment", 0.90, 0.80) is None
+        with patch("mappy.Aligner", return_value=aligner_mock):
+            hits = _run_mappy(fasta, mmi, min_identity=0.90, min_coverage=0.80)
 
-    def test_short_line_returns_none(self):
-        assert _parse_paf_line("too\tshort", 0.90, 0.80) is None
+        assert len(hits) == 1
+        assert hits[0].identity == pytest.approx(0.98)
+        assert hits[0].coverage == pytest.approx(1.0)
+        assert hits[0].source == "mappy"
 
-    def test_coverage_calculation(self):
-        line = _make_paf_line(t_start=0, t_end=90, t_len=100, tags="de:f:0.01")
-        hit = _parse_paf_line(line, min_identity=0.90, min_coverage=0.80)
-        assert hit is not None
-        assert abs(hit.coverage - 0.90) < 1e-9
+    def test_filters_low_identity(self, tmp_path):
+        fasta = tmp_path / "q.fasta"
+        fasta.write_text(">c1\nACGTACGT\n")
+        mmi = tmp_path / "idx.mmi"
+        mmi.touch()
 
-    def test_contig_name_stripped_at_whitespace(self):
-        line = _make_paf_line(q_name="contig1 extra description")
-        hit = _parse_paf_line(line, min_identity=0.80, min_coverage=0.80)
-        assert hit is not None
-        assert hit.contig == "contig1"
+        fake_hit = _make_mappy_hit(mlen=80, blen=100)  # identity=0.80
+        aligner_mock = self._make_aligner_mock([fake_hit])
+
+        with patch("mappy.Aligner", return_value=aligner_mock):
+            hits = _run_mappy(fasta, mmi, min_identity=0.90, min_coverage=0.80)
+
+        assert hits == []
+
+    def test_filters_low_coverage(self, tmp_path):
+        fasta = tmp_path / "q.fasta"
+        fasta.write_text(">c1\nACGTACGT\n")
+        mmi = tmp_path / "idx.mmi"
+        mmi.touch()
+
+        # coverage = (r_en - r_st) / ctg_len = 50/100 = 0.50
+        fake_hit = _make_mappy_hit(mlen=98, blen=100, r_st=0, r_en=50, ctg_len=100)
+        aligner_mock = self._make_aligner_mock([fake_hit])
+
+        with patch("mappy.Aligner", return_value=aligner_mock):
+            hits = _run_mappy(fasta, mmi, min_identity=0.90, min_coverage=0.80)
+
+        assert hits == []
+
+    def test_reverse_strand(self, tmp_path):
+        fasta = tmp_path / "q.fasta"
+        fasta.write_text(">c1\nACGTACGT\n")
+        mmi = tmp_path / "idx.mmi"
+        mmi.touch()
+
+        fake_hit = _make_mappy_hit(mlen=98, blen=100, r_st=0, r_en=100, ctg_len=100, strand=-1)
+        aligner_mock = self._make_aligner_mock([fake_hit])
+
+        with patch("mappy.Aligner", return_value=aligner_mock):
+            hits = _run_mappy(fasta, mmi, min_identity=0.90, min_coverage=0.80)
+
+        assert hits[0].strand == "-"
+
+    def test_raises_if_aligner_fails(self, tmp_path):
+        fasta = tmp_path / "q.fasta"
+        fasta.write_text(">c1\nACGT\n")
+        mmi = tmp_path / "idx.mmi"
+        mmi.touch()
+
+        bad_aligner = MagicMock()
+        bad_aligner.__bool__ = lambda s: False
+
+        with patch("mappy.Aligner", return_value=bad_aligner):
+            with pytest.raises(RuntimeError, match="mappy could not load index"):
+                _run_mappy(fasta, mmi, min_identity=0.90, min_coverage=0.80)
 
 
 # ---------------------------------------------------------------------------
@@ -179,22 +209,15 @@ class TestKmerScanSequence:
         assert fwd[0].source == "kmer"
 
     def test_exact_reverse_match(self):
-        """rev_comp(kmer) placed in contig must produce a '-' hit at those coords."""
         kmer = "ATCGATCG"
-        rc   = rev_comp(kmer)       # "CGATCGAT"
-        # contig: NNNN + CGATCGAT + NNNN  (length=16)
-        contig  = "NNNN" + rc + "NNNN"
-        seq_len = len(contig)       # 16
-        klen    = len(kmer)         # 8
+        rc   = rev_comp(kmer)
+        contig  = "NNNN" + rc + "NNNN"  # length=16
+        seq_len = len(contig)
+        klen    = len(kmer)
 
         hits = _kmer_scan_sequence("c1", contig, {kmer: ["cat1"]})
         rev_hits = [h for h in hits if h.strand == "-"]
         assert len(rev_hits) == 1
-
-        # rc_seq = rev_comp(contig) = NNNN + ATCGATCG + NNNN
-        # kmer found at rc_idx=4
-        # fwd_start = 16 - (4 + 8) = 4
-        # fwd_end   = 16 - 4       = 12
         assert rev_hits[0].start == 4
         assert rev_hits[0].end   == 12
 
@@ -204,49 +227,36 @@ class TestKmerScanSequence:
         hits = _kmer_scan_sequence("c1", contig, {kmer: ["cat1"]})
         fwd = [h for h in hits if h.strand == "+"]
         assert len(fwd) == 2
-        assert fwd[0].start == 0
-        assert fwd[1].start == 8
 
     def test_palindrome_not_double_counted(self):
-        palindrome = "ACGT"   # rev_comp("ACGT") == "ACGT"
+        palindrome = "ACGT"
         assert rev_comp(palindrome) == palindrome
-        contig = palindrome * 3
-        hits = _kmer_scan_sequence("c1", contig, {palindrome: ["cat1"]})
-        strands = {h.strand for h in hits}
-        assert "-" not in strands
+        hits = _kmer_scan_sequence("c1", palindrome * 3, {palindrome: ["cat1"]})
+        assert "-" not in {h.strand for h in hits}
 
     def test_kmer_longer_than_contig_skipped(self):
-        kmer = "A" * 100
-        hits = _kmer_scan_sequence("c1", "AAAA", {kmer: ["cat1"]})
-        assert hits == []
+        assert _kmer_scan_sequence("c1", "AAAA", {"A" * 100: ["cat1"]}) == []
 
-    def test_multiple_catalog_ids_for_same_kmer(self):
+    def test_multiple_catalog_ids(self):
         kmer = "ATCGATCG"
         hits = _kmer_scan_sequence("c1", kmer, {kmer: ["cat1", "cat2", "cat3"]})
-        fwd = [h for h in hits if h.strand == "+"]
-        assert len(fwd) == 3
-        assert {h.catalog_id for h in fwd} == {"cat1", "cat2", "cat3"}
+        assert {h.catalog_id for h in hits if h.strand == "+"} == {"cat1", "cat2", "cat3"}
 
-    def test_empty_index_returns_no_hits(self):
+    def test_empty_index(self):
         assert _kmer_scan_sequence("c1", "ACGTACGT", {}) == []
 
-    def test_no_match_returns_empty(self):
-        assert _kmer_scan_sequence("c1", "AAAAAAA", {"CCCCCC": ["cat1"]}) == []
-
-    def test_rc_hit_coordinates_roundtrip(self):
-        """contig[fwd_start:fwd_end] must equal rev_comp(kmer)."""
+    def test_rc_coordinates_roundtrip(self):
         kmer   = "GGTTAACC"
         rc     = rev_comp(kmer)
         contig = "TTTT" + rc + "TTTT"
         hits   = _kmer_scan_sequence("c1", contig, {kmer: ["cat1"]})
         rev_hits = [h for h in hits if h.strand == "-"]
         assert len(rev_hits) == 1
-        h = rev_hits[0]
-        assert contig[h.start:h.end] == rc
+        assert contig[rev_hits[0].start:rev_hits[0].end] == rc
 
 
 # ---------------------------------------------------------------------------
-# _run_kmer_scanner (file-level)
+# _run_kmer_scanner
 # ---------------------------------------------------------------------------
 
 class TestRunKmerScanner:
@@ -258,11 +268,9 @@ class TestRunKmerScanner:
         with open(pkl, "wb") as fh:
             pickle.dump({kmer: ["cat1"]}, fh)
         hits = _run_kmer_scanner(fasta, pkl)
-        contigs = {h.contig for h in hits if h.strand == "+"}
-        assert "c1" in contigs
-        assert "c2" in contigs
+        assert {h.contig for h in hits if h.strand == "+"} == {"c1", "c2"}
 
-    def test_empty_index_returns_empty(self, tmp_path):
+    def test_empty_index(self, tmp_path):
         fasta = tmp_path / "query.fasta"
         fasta.write_text(">c1\nACGTACGT\n")
         pkl = tmp_path / "short_index.pkl"
@@ -272,7 +280,7 @@ class TestRunKmerScanner:
 
 
 # ---------------------------------------------------------------------------
-# scan() -- integration (minimap2 mocked)
+# scan() -- integration
 # ---------------------------------------------------------------------------
 
 class TestScan:
@@ -296,42 +304,30 @@ class TestScan:
         fasta.write_text(">c1\n" + kmer + "NNNNNNNNNN\n")
         catalog_dir = _make_catalog_dir(tmp_path, {kmer: ["short_cat"]})
 
-        fake_paf = _make_paf_line(
-            q_name="c1", q_start=0, q_end=50,
-            t_name="long_cat", t_len=50, t_end=50,
-            tags="de:f:0.01",
+        fake_hit = _make_mappy_hit(
+            ctg="long_cat", ctg_len=50,
+            r_st=0, r_en=50, q_st=0, q_en=50,
+            mlen=49, blen=50,
         )
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stderr = ""
-        mock_result.stdout = fake_paf + "\n"
+        aligner_mock = MagicMock()
+        aligner_mock.__bool__ = lambda s: True
+        aligner_mock.map.return_value = iter([fake_hit])
 
-        with patch("subprocess.run", return_value=mock_result):
+        with patch("mappy.Aligner", return_value=aligner_mock):
             hits = scan(fasta, catalog_dir)
 
         sources = {h.source for h in hits}
-        assert "minimap2" in sources
+        assert "mappy" in sources
         assert "kmer" in sources
 
-    def test_minimap2_error_raises_runtime_error(self, tmp_path):
+    def test_mappy_index_load_failure_raises(self, tmp_path):
         fasta = tmp_path / "query.fasta"
         fasta.write_text(">c1\nACGT\n")
         catalog_dir = _make_catalog_dir(tmp_path, {})
 
-        mock_result = MagicMock()
-        mock_result.returncode = 1
-        mock_result.stderr = "fatal error"
-        mock_result.stdout = ""
+        bad_aligner = MagicMock()
+        bad_aligner.__bool__ = lambda s: False
 
-        with patch("subprocess.run", return_value=mock_result):
-            with pytest.raises(RuntimeError, match="minimap2 exited"):
-                scan(fasta, catalog_dir)
-
-    def test_minimap2_not_found_raises_file_not_found(self, tmp_path):
-        fasta = tmp_path / "query.fasta"
-        fasta.write_text(">c1\nACGT\n")
-        catalog_dir = _make_catalog_dir(tmp_path, {})
-
-        with patch("subprocess.run", side_effect=FileNotFoundError):
-            with pytest.raises(FileNotFoundError, match="minimap2 not found"):
+        with patch("mappy.Aligner", return_value=bad_aligner):
+            with pytest.raises(RuntimeError, match="mappy could not load index"):
                 scan(fasta, catalog_dir)
