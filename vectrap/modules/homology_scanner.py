@@ -22,7 +22,9 @@ from __future__ import annotations
 
 import pickle
 import sys
+import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import List
 
@@ -34,6 +36,20 @@ from vectrap.modules.utils import read_fasta, rev_comp
 # sequences >= this threshold are indexed by mappy.  Must match the value
 # used in vectrap/cli/build_db.py when the indexes were built.
 MIN_LEN: int = 50
+
+
+def _ts() -> str:
+    """Return a formatted timestamp string for log messages: [HH:MM:SS]"""
+    return datetime.now().strftime("[%H:%M:%S]")
+
+
+def _elapsed(t0: float) -> str:
+    """Return a human-readable elapsed time string since *t0* (from time.time())."""
+    secs = time.time() - t0
+    if secs < 60:
+        return f"{secs:.1f}s"
+    m, s = divmod(int(secs), 60)
+    return f"{m}m{s:02d}s"
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +129,7 @@ def _run_mappy(
     min_identity: float,
     min_coverage: float,
     threads: int = 4,
+    log=None,
 ) -> List[HomologyHit]:
     """Align *query_fasta* against *index_path* using mappy and return hits.
 
@@ -128,6 +145,8 @@ def _run_mappy(
         Minimum catalog sequence coverage threshold (e.g. 0.80).
     threads : int
         Number of threads for mappy (default: 4).
+    log : callable or None
+        Optional logging function that accepts a single string.
 
     Returns
     -------
@@ -139,6 +158,9 @@ def _run_mappy(
     RuntimeError
         If the mappy index cannot be loaded.
     """
+    if log is None:
+        log = lambda _: None
+
     aligner = mappy.Aligner(str(index_path), preset="map-ont", n_threads=threads, best_n=10)
     if not aligner:
         raise RuntimeError(
@@ -147,23 +169,17 @@ def _run_mappy(
         )
 
     hits: List[HomologyHit] = []
+    n_contigs = 0
     for header, seq in read_fasta(query_fasta):
         contig_name = header.split()[0]
+        n_contigs += 1
         for hit in aligner.map(seq, cs=True):
-            # hit.ctg       -- catalog sequence name (target)
-            # hit.ctg_len   -- catalog sequence length
-            # hit.r_st/r_en -- target (catalog) start/end
-            # hit.q_st/q_en -- query (contig) start/end, always forward-strand
-            # hit.strand    -- +1 or -1
-
             identity = _identity_from_hit(hit)
             if identity < min_identity:
                 continue
-
             coverage = (hit.r_en - hit.r_st) / hit.ctg_len if hit.ctg_len > 0 else 0.0
             if coverage < min_coverage:
                 continue
-
             hits.append(HomologyHit(
                 contig=contig_name,
                 start=hit.q_st,
@@ -175,6 +191,7 @@ def _run_mappy(
                 source="mappy",
             ))
 
+    log(f"    contigs scanned : {n_contigs:,}")
     return hits
 
 
@@ -283,6 +300,7 @@ def _kmer_scan_sequence(
 def _run_kmer_scanner(
     query_fasta: Path,
     pkl_path: Path,
+    log=None,
 ) -> List[HomologyHit]:
     """Load the short-sequence k-mer index and scan all contigs in *query_fasta*.
 
@@ -292,12 +310,17 @@ def _run_kmer_scanner(
         Input assembly FASTA (plain or gzipped).
     pkl_path : Path
         Path to the ``short_index.pkl`` file built by ``vectrap-build-db``.
+    log : callable or None
+        Optional logging function that accepts a single string.
 
     Returns
     -------
     list[HomologyHit]
         All exact k-mer matches.
     """
+    if log is None:
+        log = lambda _: None
+
     with open(pkl_path, "rb") as fh:
         short_index: dict[str, list[str]] = pickle.load(fh)
 
@@ -305,9 +328,14 @@ def _run_kmer_scanner(
         return []
 
     hits: List[HomologyHit] = []
+    n_contigs = 0
     for header, seq in read_fasta(query_fasta):
         contig_name = header.split()[0]
+        n_contigs += 1
         hits.extend(_kmer_scan_sequence(contig_name, seq, short_index))
+
+    log(f"    contigs scanned : {n_contigs:,}")
+    log(f"    k-mers in index : {len(short_index):,}")
     return hits
 
 
@@ -345,7 +373,7 @@ def scan(
     threads : int, optional
         Number of threads passed to mappy (default: 4).
     verbose : bool, optional
-        Print progress messages to stderr (default: False).
+        Print timestamped progress messages to stderr (default: False).
 
     Returns
     -------
@@ -379,25 +407,47 @@ def scan(
 
     def _log(msg: str) -> None:
         if verbose:
-            print(msg, file=sys.stderr)
+            print(f"{_ts()} {msg}", file=sys.stderr, flush=True)
 
-    _log("[vectrap] Running mappy aligner (long sequences) ...")
+    t_total = time.time()
+
+    _log(f"input            : {query_fasta}")
+    _log(f"catalog          : {catalog_dir}")
+    _log(f"min identity     : {min_identity}")
+    _log(f"min coverage     : {min_coverage}")
+    _log(f"threads          : {threads}")
+
+    # --- mappy aligner ---
+    _log("─" * 48)
+    _log("stage 1/2  mappy aligner (long sequences)")
+    t0 = time.time()
     mappy_hits = _run_mappy(
         query_fasta=query_fasta,
         index_path=mmi_path,
         min_identity=min_identity,
         min_coverage=min_coverage,
         threads=threads,
+        log=_log,
     )
-    _log(f"[vectrap] mappy: {len(mappy_hits):,} hits after filtering.")
+    _log(f"    hits           : {len(mappy_hits):,}")
+    _log(f"    elapsed        : {_elapsed(t0)}")
 
-    _log("[vectrap] Running k-mer scanner (short sequences) ...")
+    # --- k-mer scanner ---
+    _log("─" * 48)
+    _log("stage 2/2  k-mer scanner (short sequences)")
+    t0 = time.time()
     kmer_hits = _run_kmer_scanner(
         query_fasta=query_fasta,
         pkl_path=pkl_path,
+        log=_log,
     )
-    _log(f"[vectrap] k-mer: {len(kmer_hits):,} hits.")
+    _log(f"    hits           : {len(kmer_hits):,}")
+    _log(f"    elapsed        : {_elapsed(t0)}")
 
+    # --- summary ---
     all_hits = mappy_hits + kmer_hits
-    _log(f"[vectrap] Total hits: {len(all_hits):,}.")
+    _log("─" * 48)
+    _log(f"total hits        : {len(all_hits):,}")
+    _log(f"total elapsed     : {_elapsed(t_total)}")
+
     return all_hits
