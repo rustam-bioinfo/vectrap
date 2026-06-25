@@ -1,9 +1,11 @@
 # VecTrap
 
+> **Don't let synthetic vector contamination slip into your pathogen assemblies. Catch them with VecTrap.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
 [![Status: Active Development](https://img.shields.io/badge/status-active%20development-green.svg)]()
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20844271.svg)](https://doi.org/10.5281/zenodo.20844271)
 
 ---
 
@@ -11,9 +13,19 @@
 
 VecTrap is a high-throughput Python pipeline for the detection and classification of synthetic laboratory vector sequences within raw bacterial genome assemblies and plasmid datasets.
 
-Synthetic vector contamination in public databases (NCBI RefSeq/GenBank) is a well-documented and pervasive problem. VecTrap is designed to systematically flag these contaminants before they can corrupt downstream genomic, phylogenetic, or epidemiological analyses.
+Synthetic vector contamination in public databases (NCBI RefSeq/GenBank) is a well-documented and pervasive problem. Researchers often clone fragments of pathogen genomes into engineered cloning and expression vectors, then accidentally deposit the complete vector backbone sequence alongside the biological target sequence. VecTrap is designed to systematically flag these contaminants before they can corrupt downstream genomic, phylogenetic, or epidemiological analyses.
 
 VecTrap uses a catalog-driven homology scanning strategy backed by an empirically derived sequence database built from more than 100,000 experimentally validated synthetic constructs. The catalog covers the full diversity of engineered vector elements including replication origins, selectable markers, regulatory sequences, recombination sites, and sequencing primer binding sites found in prokaryotic, broad-host-range, and mammalian expression vectors.
+
+---
+
+## Sequence Catalog
+
+The VecTrap sequence catalog is deposited on Zenodo and must be downloaded separately before running the pipeline.
+
+**DOI: [10.5281/zenodo.20844271](https://doi.org/10.5281/zenodo.20844271)**
+
+The catalog consists of 14 FASTA files, one per feature type category, plus a manifest file. Download and index preparation is handled automatically by `db/build_db.py` (see Quick Start below).
 
 ---
 
@@ -54,7 +66,7 @@ vectrap/
     catalogs/      FASTA sequence catalogs and search indexes
     modules/       Core scanning and scoring modules
 db/
-    build_db.py    One-time catalog index preparation
+    build_db.py    One-time catalog download and index preparation
 vectrap.py         Unified CLI entry point
 requirements.txt
 ```
@@ -76,8 +88,11 @@ pip install -r requirements.txt
 ## Quick Start
 
 ```bash
-# Prepare catalog indexes (run once after cloning)
-python db/build_db.py --catalog-dir vectrap/catalogs/
+# Download catalog files from Zenodo and prepare indexes (run once after cloning)
+python db/build_db.py --download
+
+# Or use locally provided catalog files
+python db/build_db.py --catalog-dir /path/to/catalogs/
 
 # Run full pipeline
 python vectrap.py -i assembly.fasta -o results/ -c vectrap/catalogs/
@@ -127,6 +142,10 @@ VecTrap partitions every hit into one of two evidence tiers:
 If you use VecTrap in your research, please cite:
 
 > *VecTrap: A catalog-driven pipeline for detecting synthetic vector contamination in bacterial genome assemblies.* (Manuscript in preparation)
+
+For the sequence catalog:
+
+> VecTrap Sequence Catalog v1.0. Zenodo. https://doi.org/10.5281/zenodo.20844271
 
 ---
 

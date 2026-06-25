@@ -6,18 +6,18 @@ This file tracks all pending tasks for the complete rewrite of VecTrap into a ca
 
 ## 1. Catalog Deposition
 
-- [ ] Upload all `catalog_*.fasta` files to Zenodo
-- [ ] Obtain Zenodo DOI for the catalog dataset
-- [ ] Record the mapping file `vectrap_catalog_mapping.tsv` locally (do not ship with tool, internal provenance only)
-- [ ] Add Zenodo DOI badge and download link to `README.md`
-- [ ] Decide on catalog versioning scheme (e.g. `v1.0`) for future updates
+- [x] Upload all `catalog_*.fasta` files to Zenodo
+- [x] Obtain Zenodo DOI for the catalog dataset -- `10.5281/zenodo.20844271`
+- [x] Record the mapping file `vectrap_catalog_mapping.tsv` locally (do not ship with tool, internal provenance only)
+- [x] Add Zenodo DOI badge and download link to `README.md`
+- [x] Decide on catalog versioning scheme -- `v1.0`
 
 ---
 
 ## 2. Repository Structure
 
 - [ ] Create `vectrap/modules/` new source files (see section 3)
-- [ ] Create `db/build_db.py` -- one-time index preparation script
+- [ ] Create `db/build_db.py` -- one-time catalog download and index preparation script
 - [ ] Create `vectrap.py` -- unified CLI entry point
 - [ ] Remove all `.gitkeep` placeholders once real files are added
 - [ ] Add `vectrap/catalogs/README.md` explaining catalog format and how to obtain catalog files from Zenodo
@@ -60,10 +60,10 @@ This file tracks all pending tasks for the complete rewrite of VecTrap into a ca
 - [ ] Print run summary to stdout
 
 ### 3.6 `db/build_db.py`
-- [ ] `--download` mode: fetch catalog FASTA files from Zenodo DOI
+- [ ] `--download` mode: fetch catalog FASTA files from Zenodo DOI `10.5281/zenodo.20844271`
 - [ ] `--catalog-dir` mode: use locally provided FASTA files
 - [ ] Build BLAST or minimap2 indexes depending on chosen strategy
-- [ ] Validate that all expected catalog files are present after download
+- [ ] Validate downloaded files against `catalog_manifest.tsv` checksums
 
 ---
 
