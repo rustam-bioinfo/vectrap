@@ -32,7 +32,7 @@ The catalog consists of 14 FASTA files, one per feature type category, plus a ma
 ## Key Features
 
 - **Catalog-driven homology detection** against a curated database of real synthetic vector sequences
-- **Evidence-tiered classification** — every hit is assigned to `ENGINEERED` (no natural analog; standalone proof of synthetic origin) or `RECRUITED` (natural sequence recruited into vectors; interpreted in genomic context)
+- **Evidence-tiered classification** — every hit is assigned to `ENGINEERED` (no natural analog in wild-type bacteria; standalone proof of synthetic origin), `CONTEXT_DEPENDENT` (natural in bacteria but anomalous depending on host organism and genomic context), or `WEAK` (widespread in wild-type bacteria; contributes only in combination with other evidence)
 - **Broad vector coverage** — prokaryotic, broad-host-range, lentiviral, and mammalian expression vector backbones
 - **Bidirectional strand scanning** with precise coordinate mapping back to the forward sense strand
 - **Two output levels** — per-hit evidence table and per-contig classification (`VECTOR` / `SUSPECTED` / `CLEAN`)
@@ -42,22 +42,31 @@ The catalog consists of 14 FASTA files, one per feature type category, plus a ma
 
 ## Detected Vector Elements
 
+All tier assignments reflect the bacterial genome context — the question asked is whether a given sequence could plausibly appear in a wild-type bacterial chromosome or natural bacterial plasmid.
+
 | Category | Evidence Tier | Examples |
 | :--- | :--- | :--- |
-| Synthetic ribosome binding sites | ENGINEERED | BBa-series RBS, optimised Shine-Dalgarno variants |
+| Eukaryotic/viral replication origins | ENGINEERED | SV40 ori, EBV oriP |
+| Filamentous phage origins used as cloning tools | ENGINEERED | f1 ori, M13 ori |
+| Eukaryotic and viral promoters | ENGINEERED | CMV, EF1α, PGK, CAG, CaMV35S |
+| Phage RNA polymerase promoters | ENGINEERED | T7, SP6, T3 |
+| Eukaryotic transcription terminators / polyA signals | ENGINEERED | BGH polyA, SV40 polyA |
+| Mammalian selectable markers | ENGINEERED | Puromycin, Blasticidin, Hygromycin (mammalian context) |
+| Fluorescent and reporter proteins | ENGINEERED | EGFP, mCherry, mTurquoise, Luciferase |
+| CRISPR/genome-editing elements | ENGINEERED | Cas9, Cas12, sgRNA scaffolds |
+| Recombinase systems | ENGINEERED | Cre, Flp, PhiC31 |
 | Site-specific recombination sites | ENGINEERED | attB/attP (Lambda, PhiC31), loxP, FRT |
-| Fully synthetic promoters | ENGINEERED | T7, T5, tac, trc, CMV, EF1α, PGK, CAG |
-| Synthetic terminators | ENGINEERED | T7Te, BGH polyA, SV40 polyA |
+| Synthetic regulatory elements | ENGINEERED | IRES, WPRE, P2A/T2A self-cleaving peptides |
 | Sequencing primer binding sites | ENGINEERED | M13, T7, SP6, pUC, T3 |
-| Retroviral LTR sequences | ENGINEERED | LTR sequences, lentiviral packaging signals |
-| Synthetic regulatory elements | ENGINEERED | IRES, synthetic Kozak, splice donor/acceptor |
-| Replication origins | RECRUITED | ColE1, p15A, RK2, pBBR1, f1 (natural plasmid/phage ancestors) |
-| Transfer origins | RECRUITED | oriT IncP, IncQ, IncW |
-| Selectable markers | RECRUITED | KanR, AmpR, CmR, HygR, PuroR, BlastR (Tn-derived) |
-| Natural-sequence promoters in vectors | RECRUITED | lac, ara, trp, phoA, tet |
-| Natural terminators in vectors | RECRUITED | rrnB T1/T2, lambda t0 |
-| Protein binding sites | RECRUITED | lacO, tetO, cumate operator |
-| Mobile element remnants | RECRUITED | Tn3, Tn5, Tn10, Tn903, IS borders |
+| Retroviral/lentiviral elements | ENGINEERED | LTR, lentiviral packaging signals, HIV PSI |
+| Bacterial replication origins | CONTEXT_DEPENDENT | ColE1, pMB1, pUC ori, p15A, pSC101, RK2, pBBR1 |
+| Bacterial transfer origins | CONTEXT_DEPENDENT | oriT IncP, IncQ, IncW |
+| Bacterial selectable markers | CONTEXT_DEPENDENT | KanR, AmpR, CmR, TetR, GenR (Tn-derived, endemic via HGT) |
+| T7 expression system elements | CONTEXT_DEPENDENT | T7 terminator, T7 tag (T7 RNAP not endogenous in wild-type bacteria) |
+| Inducible expression system components | CONTEXT_DEPENDENT | lacI, lacO, IPTG-responsive elements, tac/trc promoters |
+| Natural terminators used in vectors | WEAK | rrnB T1/T2, lambda t0, tonB terminator |
+| Natural sigma-factor promoters | WEAK | lac, ara, trp, phoA (widespread in enterobacteria) |
+| Mobile element remnants | CONTEXT_DEPENDENT | Tn3, Tn5, Tn10, Tn903, IS borders |
 
 ---
 
@@ -126,7 +135,7 @@ VecTrap writes two output files per run to the specified output directory.
 | `start_0based` | 0-based start coordinate on the forward strand |
 | `end_0based` | 0-based end coordinate on the forward strand |
 | `strand` | `+` for forward, `-` for reverse complement |
-| `evidence_tier` | `ENGINEERED` or `RECRUITED` |
+| `evidence_tier` | `ENGINEERED`, `CONTEXT_DEPENDENT`, or `WEAK` |
 | `feature_class` | Functional class of the detected element |
 | `catalog_id` | Matched catalog entry identifier |
 
@@ -137,18 +146,22 @@ VecTrap writes two output files per run to the specified output directory.
 | `contig` | FASTA header |
 | `classification` | `VECTOR`, `SUSPECTED`, or `CLEAN` |
 | `engineered_hits` | Number of ENGINEERED-tier hits |
-| `recruited_classes` | Number of distinct functional classes with RECRUITED hits |
+| `recruited_classes` | Number of distinct functional classes with CONTEXT_DEPENDENT hits |
 | `evidence_summary` | Human-readable evidence breakdown |
 
 ---
 
 ## Evidence Classification
 
-VecTrap assigns every catalog hit to one of two evidence tiers:
+VecTrap is designed for **bacterial genome assemblies**. All tier assignments reflect whether a sequence could plausibly occur in a wild-type bacterial chromosome or natural bacterial plasmid.
 
-- **`ENGINEERED`** — The matched sequence has no natural biological analog. It was designed in a laboratory and does not exist in wild-type organisms. A single high-confidence ENGINEERED hit is sufficient to classify a contig as synthetic. Examples: T7 promoter, CMV enhancer, BGH polyA signal, attB/FRT recombination sites, synthetic RBS, sequencing primer binding sites, retroviral LTR sequences in non-viral assemblies.
+Every catalog hit is assigned to one of three evidence tiers:
 
-- **`RECRUITED`** — The matched sequence derives from a natural biological source that was recruited into synthetic vectors because it functions well in engineered contexts. These sequences also occur in wild genomes and cannot individually prove synthetic origin. Their evidential weight comes from **functional class diversity**: a contig simultaneously carrying a replication origin, a resistance marker, and a promoter is almost certainly synthetic, whereas a contig with only one of these is ambiguous. Examples: ColE1 origin, KanR/AmpR resistance genes, rrnB terminator, conjugative oriT, lac promoter.
+- **`ENGINEERED`** — The matched sequence has no natural occurrence in any wild-type bacterium. It was designed in a laboratory, is derived from eukaryotic viruses or mammalian systems, or originates from contexts (phage RNA polymerase, mammalian cell culture) that have no plausible route into a bacterial genome without deliberate cloning. A single high-confidence ENGINEERED hit is sufficient to classify a contig as synthetic. Examples: T7 promoter, CMV enhancer, SV40 ori, f1/M13 ori, BGH polyA signal, EGFP, Cas9, attB/FRT recombination sites, IRES, WPRE, retroviral LTR.
+
+- **`CONTEXT_DEPENDENT`** — The matched sequence exists naturally in bacteria or natural bacterial plasmids but its presence in an assembly may indicate synthetic contamination depending on the host organism and genomic context. A ColE1 origin in an *E. coli* assembly is unremarkable; the same origin in a *Salmonella* or *Bacillus* assembly warrants scrutiny. Antibiotic resistance genes (KanR, AmpR, CmR) are endemic in environmental and clinical bacteria via horizontal gene transfer and are not diagnostic alone. Their evidential weight comes from **functional class co-occurrence**: a contig simultaneously carrying a replication origin, a resistance marker, and a promoter is almost certainly synthetic. Examples: ColE1 ori, p15A ori, KanR, AmpR, CmR, tac/trc promoters, T7 terminator, lacI/lacO.
+
+- **`WEAK`** — The matched sequence is widespread across wild-type bacteria with low specificity for synthetic origin. These elements contribute to a verdict only when co-occurring with stronger evidence from other tiers. Examples: rrnB T1/T2 terminator, tonB terminator, natural sigma70 promoters (lac, ara, trp).
 
 ---
 
