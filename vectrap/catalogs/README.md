@@ -28,108 +28,141 @@ DOI: [10.5281/zenodo.20844271](https://doi.org/10.5281/zenodo.20844271)
 
 ## Evidence Tiers
 
-VecTrap assigns every catalog category to one of two evidence tiers: **ENGINEERED** or
-**RECRUITED**. The distinction is based on whether the sequences in a category have any
-plausible natural occurrence, not simply on how commonly they appear in vector maps.
+VecTrap assigns every catalog category to one of three evidence tiers: **ENGINEERED**,
+**CONTEXT_DEPENDENT**, or **WEAK**. All tier assignments are made relative to the
+**bacterial genome context** — the defining question is whether a given sequence could
+plausibly appear in a wild-type bacterial chromosome or a natural bacterial plasmid
+without deliberate cloning.
 
 ### ENGINEERED
 
-Sequences in this tier have **no natural biological origin**. They were designed in a
-laboratory, do not exist in wild-type organisms, and their presence in an assembled
-sequence is essentially unambiguous evidence of synthetic origin. A single high-confidence
+Sequences in this tier have **no natural occurrence in any wild-type bacterium**. They
+originate from eukaryotic viruses, mammalian cell biology, phage RNA polymerase systems,
+or are fully synthetic constructs. There is no plausible route for these sequences to
+appear in a bacterial assembly except deliberate cloning. A single high-confidence
 ENGINEERED hit is sufficient to classify a contig as synthetic.
 
 This tier includes:
 
-- Synthetic ribosome binding sites (BBa-series, consensus Shine-Dalgarno variants optimised
-  for expression, and other designer RBS sequences that differ substantially from any
-  chromosomal RBS).
-- Fully synthetic promoters with no direct natural counterpart: T7 class, T5, tac, trc,
-  lac-T7 hybrids, CMV, EF1α, PGK, CAG, CaMV 35S, and similar.
-- Synthetic transcription terminators: T7Te, designed rho-independent terminators,
-  BGH polyA, SV40 polyA, and similar.
-- Site-specific recombination sites introduced by engineering: attB, attP, attL, attR
-  (Lambda and PhiC31), loxP, loxN, FLP/FRT, rox, and other designer variants. These are
-  distinguished from naturally occurring phage att sites by their flanking sequence context
-  stored in the catalog.
-- Sequencing primer binding sites in canonical orientations: M13 forward/reverse, T7, SP6,
-  T3, pUC, and similar universal sequencing primers. These short exact sequences were
-  designed for laboratory use and have no meaningful natural occurrence at the frequencies
-  seen in cloning vectors.
-- Retroviral LTR sequences used in lentiviral and gamma-retroviral expression and
-  packaging vectors. These are derived from viral genomes but appear in assembled bacterial
-  or eukaryotic sequences only through deliberate cloning.
-- Synthetic regulatory elements: IRES sequences, Kozak consensus inserts, synthetic splice
-  donor and acceptor sites, tetO and cumate operator arrays used in inducible systems.
+- **Eukaryotic and viral promoters**: CMV, EF1α, PGK, CAG, CaMV 35S. These are active
+  only in eukaryotic cells and have no function in bacteria. Their presence in a bacterial
+  assembly is unambiguous.
+- **Phage RNA polymerase promoters**: T7, SP6, T3. These require T7/SP6/T3 RNA
+  polymerase, which is never endogenous in wild-type bacteria. Their use is exclusively
+  in engineered expression systems.
+- **Eukaryotic and viral replication origins**: SV40 ori, EBV oriP. Never functional in
+  bacteria.
+- **Filamentous phage origins used as cloning tools**: f1 ori, M13 ori. Phage-derived
+  elements used in phagemid systems; they do not occur in bacterial chromosomes or natural
+  conjugative plasmids.
+- **Eukaryotic transcription terminators and polyadenylation signals**: BGH polyA, SV40
+  polyA. Eukaryotic-specific; have no role in bacterial transcription.
+- **Mammalian selectable markers**: Puromycin resistance (pac), Blasticidin resistance
+  (bsr), Hygromycin resistance (hph) when present in a mammalian vector context.
+- **Fluorescent and reporter proteins**: EGFP, mCherry, mTurquoise, mVenus, mRuby,
+  tdTomato, Luciferase, and all GFP-family variants. Never encoded in wild-type bacterial
+  genomes.
+- **CRISPR and genome-editing elements**: Cas9, Cas12, Cpf1, sgRNA scaffolds. Engineered
+  systems assembled into configurations that do not occur naturally.
+- **Recombinase systems**: Cre recombinase, Flp recombinase, PhiC31 integrase. Derived
+  from phage but used exclusively as engineered tools.
+- **Site-specific recombination sites**: attB, attP, attL, attR (Lambda and PhiC31),
+  loxP, loxN, FRT, rox, and designer variants, distinguished from naturally occurring
+  phage att sites by their flanking sequence context stored in the catalog.
+- **Synthetic regulatory elements**: IRES sequences, WPRE, P2A/T2A/E2A self-cleaving
+  peptides, synthetic Kozak sequences, synthetic splice donor/acceptor sites.
+  Eukaryotic-specific or fully synthetic.
+- **Sequencing primer binding sites**: M13 forward/reverse, T7, SP6, T3, pUC, and similar
+  universal sequencing primers. Designed for laboratory use; no meaningful natural
+  occurrence.
+- **Retroviral and lentiviral elements**: LTR sequences, lentiviral packaging signals
+  (PSI), HIV-derived elements. Viral in origin; never present in bacterial genomes outside
+  deliberate cloning.
 
-### RECRUITED
+### CONTEXT_DEPENDENT
 
-Sequences in this tier are **derived from natural biological sources** and are commonly
-recruited into synthetic vectors precisely because they function well in engineered
-constructs. They exist in natural genomes as well and cannot individually serve as proof
-of synthetic origin. Their evidential weight depends on co-occurrence with other hits and
-on genomic context.
+Sequences in this tier **exist naturally in bacteria or natural bacterial plasmids**. Their
+presence in an assembly is not automatically diagnostic — it depends on the host organism
+being assembled and the broader genomic context. For example, a ColE1 origin found in an
+*E. coli* assembly may reflect a natural endogenous plasmid; the same origin in a
+*Salmonella* or *Bacillus* assembly is anomalous. Antibiotic resistance genes such as KanR
+and AmpR are endemic in environmental and clinical bacterial populations via horizontal
+gene transfer and cannot individually prove synthetic contamination.
 
-Multiple independent RECRUITED hits from **different functional classes** on the same
-contig strongly support a synthetic origin conclusion, even when no ENGINEERED hit is
-present. The key signal is functional diversity: a natural sequence may contain a
-terminator-like hairpin, but it will not simultaneously carry a resistance gene, a
-replication origin, and a promoter.
+Their evidential weight comes from **functional class co-occurrence**: a contig
+simultaneously carrying a replication origin, a resistance marker, and a promoter from
+this tier is almost certainly synthetic, whereas a contig with a single hit from one
+functional class is ambiguous.
 
 This tier includes:
 
-- Replication origins: ColE1, p15A, pBBR1, RK2, pSC101, f1, and similar. These are
-  derived from natural plasmids and bacteriophage and occur in wild-type extrachromosomal
-  elements. Engineered variants (rop-deleted ColE1, mutated copy-number alleles) are
-  included but the category as a whole cannot be called ENGINEERED because the underlying
-  sequences are naturally occurring.
-- Transfer origins (oriT): IncP, IncQ, IncW, and similar conjugative transfer sequences.
-  These are found in natural conjugative plasmids.
-- Selectable marker coding sequences: resistance genes such as aphA (KanR), bla (AmpR),
-  cat (CmR), aac(3) (GentR), hph (HygR), pac (PuroR), bsr (BlastR), and similar. These
-  are derived from natural bacterial resistance determinants, many from transposons, and
-  occur in wild-type organisms. Their presence in a contig is suspicious but not
-  individually conclusive without additional context.
-- Engineered promoters derived from natural sigma-factor-dependent sequences: lac, ara,
-  trp, phoA, tet, and similar. The fully synthetic core promoters listed under ENGINEERED
-  are distinct; this sub-category covers natural promoter sequences that appear in vector
-  maps with minimal or no modification.
-- Transcription terminators derived from natural sequences: rrnB T1/T2, lambda t0, fd,
-  and similar. These occur in wild-type genomes.
-- Protein-binding operator sequences: lacO, tetO arrays, and similar, when cataloged in
-  their natural-length form rather than as synthetic multimers.
-- Mobile-element remnants: transposon end sequences (Tn3, Tn5, Tn10, Tn903) and IS-element
-  borders that appear in vector backbones due to historical cloning from natural sources.
-  These also occur in natural chromosomes and plasmids.
-- Miscellaneous synthetic features that do not fit the above categories cleanly but share
-  the property of having a recognisable natural sequence ancestor.
+- **Bacterial replication origins**: ColE1, pMB1, pUC ori, p15A, pSC101, RK2, pBBR1,
+  pSa, and similar. Derived from natural *E. coli* and broad-host-range plasmids.
+- **Transfer origins (oriT)**: IncP, IncQ, IncW, and similar conjugative transfer
+  sequences. Found in natural conjugative plasmids.
+- **Bacterial antibiotic resistance markers**: aphA (KanR), bla (AmpR), cat (CmR),
+  tetA (TetR), aac(3) (GentR), aadA (SpecR), and similar. Originally derived from
+  transposons; widely disseminated in natural populations via horizontal gene transfer.
+- **T7 expression system elements**: T7 terminator, T7 tag. The T7 promoter itself is
+  ENGINEERED; these associated elements are CONTEXT_DEPENDENT because the terminator
+  occurs in some natural phage genomes and the tag is a protein epitope.
+- **Inducible expression system components**: lacI, lacO arrays, tac promoter, trc
+  promoter, IPTG-responsive elements. Derived from the natural *E. coli* lac operon but
+  assembled into configurations not found in wild-type chromosomes.
+- **Mobile element remnants**: Transposon end sequences (Tn3, Tn5, Tn10, Tn903) and
+  IS-element borders incorporated into vector backbones during historical cloning from
+  natural sources. These also occur in natural chromosomes and plasmids.
+- **Protein-binding operator sequences**: lacO, tetO arrays, and similar, when cataloged
+  in their natural-length form rather than as synthetic multimers.
+
+### WEAK
+
+Sequences in this tier are **widespread in wild-type bacterial genomes** and carry low
+specificity for synthetic origin. A WEAK hit contributes to a verdict only when it
+co-occurs with ENGINEERED or CONTEXT_DEPENDENT evidence. WEAK hits alone are never
+sufficient for a `VECTOR` or `SUSPECTED` verdict.
+
+This tier includes:
+
+- **Common transcription terminators**: rrnB T1/T2, tonB terminator, lambda t0, fd
+  terminator. These are standard terminators used in expression vectors precisely because
+  they are efficient in many bacteria — and therefore also common in natural genomes.
+- **Natural sigma-factor-dependent promoters**: lac, ara, trp, phoA promoters in their
+  unmodified natural form. Widespread in Enterobacteriaceae and related organisms.
+- **Ribosomal RNA and tRNA elements**: rRNA genes, tRNA genes. Present in all bacteria.
+- **Miscellaneous features with natural counterparts**: catalog entries that share the
+  property of having a recognisable wild-type bacterial ancestor but insufficient
+  specificity for synthetic origin on their own.
 
 ## Catalog Categories
 
 | Catalog file | Feature type | Evidence tier | Rationale |
 | :--- | :--- | :--- | :--- |
-| `catalog_rep_origin.fasta.gz` | Replication origins | RECRUITED | Derived from natural plasmid/phage replicons; engineered variants included but natural counterparts exist |
-| `catalog_oriT.fasta.gz` | Transfer origins | RECRUITED | Found in natural conjugative plasmids |
-| `catalog_misc_recomb.fasta.gz` | Recombination sites | ENGINEERED | Designed att/lox/FRT sites; distinguished from phage att sites by flanking context |
-| `catalog_RBS.fasta.gz` | Ribosome binding sites | ENGINEERED | Synthetic designer RBS sequences with no natural chromosomal counterpart |
-| `catalog_CDS.fasta.gz` | Resistance markers and tags | RECRUITED | Derived from natural resistance determinants; suspicious in context but not individually diagnostic |
-| `catalog_promoter.fasta.gz` | Promoters | ENGINEERED / RECRUITED | Fully synthetic promoters (T7, CMV, etc.) are ENGINEERED; natural sigma-factor promoters in vectors are RECRUITED |
-| `catalog_terminator.fasta.gz` | Transcription terminators | ENGINEERED / RECRUITED | Synthetic terminators (BGH, T7Te) are ENGINEERED; natural terminators (rrnB) are RECRUITED |
-| `catalog_primer_bind.fasta.gz` | Sequencing primer binding sites | ENGINEERED | Designed for laboratory use; no meaningful natural occurrence |
-| `catalog_protein_bind.fasta.gz` | Protein binding sites (operators) | RECRUITED | Derived from natural operator sequences |
-| `catalog_regulatory.fasta.gz` | Synthetic regulatory elements | ENGINEERED | IRES, synthetic Kozak, splice signals used in expression vectors |
-| `catalog_enhancer.fasta.gz` | Enhancer elements | RECRUITED | Derived from viral or cellular enhancers; not specific to synthetic constructs alone |
-| `catalog_LTR.fasta.gz` | Retroviral LTR sequences | ENGINEERED | Appear in bacterial/non-viral assemblies only through deliberate cloning |
-| `catalog_mobile_element.fasta.gz` | Mobile element remnants | RECRUITED | Transposon and IS borders occur in natural chromosomes and plasmids |
-| `catalog_misc_feature.fasta.gz` | Miscellaneous synthetic features | RECRUITED | Mixed; assessed in combination with other evidence |
+| `catalog_rep_origin.fasta.gz` | Replication origins | CONTEXT_DEPENDENT | Derived from natural plasmid/phage replicons; natural counterparts exist in bacteria; tier reflects host-organism dependency |
+| `catalog_oriT.fasta.gz` | Transfer origins | CONTEXT_DEPENDENT | Found in natural conjugative plasmids; not diagnostic alone |
+| `catalog_misc_recomb.fasta.gz` | Recombination sites | ENGINEERED | Designed att/lox/FRT sites; no natural occurrence in wild-type bacteria |
+| `catalog_RBS.fasta.gz` | Ribosome binding sites | CONTEXT_DEPENDENT / WEAK | Synthetic designer RBS: CONTEXT_DEPENDENT; minimal natural-sequence variants: WEAK |
+| `catalog_CDS.fasta.gz` | Resistance markers, reporter genes, epitope tags | ENGINEERED / CONTEXT_DEPENDENT | Fluorescent proteins, Cas9, recombinases: ENGINEERED; Tn-derived resistance genes: CONTEXT_DEPENDENT |
+| `catalog_promoter.fasta.gz` | Promoters | ENGINEERED / CONTEXT_DEPENDENT / WEAK | T7/CMV/CAG and phage RNAP promoters: ENGINEERED; tac/trc/lacI-regulated: CONTEXT_DEPENDENT; unmodified lac/ara/trp: WEAK |
+| `catalog_terminator.fasta.gz` | Transcription terminators | ENGINEERED / WEAK | BGH/SV40 polyA: ENGINEERED; rrnB/tonB/lambda t0: WEAK |
+| `catalog_primer_bind.fasta.gz` | Sequencing primer binding sites | ENGINEERED | Designed for laboratory use; no meaningful natural occurrence in bacteria |
+| `catalog_protein_bind.fasta.gz` | Protein binding sites (operators) | CONTEXT_DEPENDENT | Derived from natural operator sequences; individually ambiguous |
+| `catalog_regulatory.fasta.gz` | Synthetic regulatory elements | ENGINEERED | IRES, WPRE, P2A/T2A, synthetic Kozak, splice signals — eukaryotic-specific or fully synthetic |
+| `catalog_enhancer.fasta.gz` | Enhancer elements | ENGINEERED | Viral and mammalian enhancers (CMV, SV40) have no natural occurrence in bacteria |
+| `catalog_LTR.fasta.gz` | Retroviral LTR sequences | ENGINEERED | Appear in bacterial assemblies only through deliberate cloning |
+| `catalog_mobile_element.fasta.gz` | Mobile element remnants | CONTEXT_DEPENDENT | Transposon and IS borders occur in natural chromosomes and plasmids |
+| `catalog_misc_feature.fasta.gz` | Miscellaneous synthetic features | CONTEXT_DEPENDENT / WEAK | Mixed; assessed in combination with other evidence |
 
 ## Scoring Principle
 
 One **ENGINEERED** hit with sufficient identity and coverage is treated as direct evidence
-of synthetic origin.
+of synthetic origin and is sufficient for a `VECTOR` verdict on its own.
 
-For **RECRUITED** hits, the scoring model weighs **functional class diversity**: a contig
-that carries hits from multiple independent functional classes (replication, resistance,
-expression control) is much more likely to be synthetic than a contig with many hits all
-from the same functional class. Hit count alone is not a reliable signal for RECRUITED
-evidence.
+For **CONTEXT_DEPENDENT** hits, the scoring model weighs **functional class co-occurrence**:
+a contig that carries hits from multiple independent functional classes (replication,
+resistance, expression control) is much more likely to be synthetic than a contig with
+hits from only one functional class. Hit count alone is not a reliable signal for
+CONTEXT_DEPENDENT evidence.
+
+**WEAK** hits are never scored in isolation. They contribute only when ENGINEERED or
+CONTEXT_DEPENDENT evidence is already present on the same contig.
