@@ -8,7 +8,39 @@ Usage
 """
 
 import argparse
+import csv
+import sys
 from pathlib import Path
+
+from vectrap.modules.homology_scanner import scan
+
+
+# Default catalog directory bundled inside the package (populated by
+# vectrap-build-db --download).
+_DEFAULT_CATALOG_DIR = Path(__file__).resolve().parents[2] / "vectrap" / "catalogs"
+
+
+def _write_tsv(hits, output_dir: Path) -> Path:
+    """Write hits to a TSV file and return the path."""
+    out_path = output_dir / "vectrap_hits.tsv"
+    fieldnames = ["contig", "start", "end", "strand", "length",
+                  "identity", "coverage", "catalog_id", "source"]
+    with open(out_path, "w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fieldnames, delimiter="\t")
+        writer.writeheader()
+        for h in hits:
+            writer.writerow({
+                "contig":     h.contig,
+                "start":      h.start,
+                "end":        h.end,
+                "strand":     h.strand,
+                "length":     h.length,
+                "identity":   f"{h.identity:.4f}",
+                "coverage":   f"{h.coverage:.4f}",
+                "catalog_id": h.catalog_id,
+                "source":     h.source,
+            })
+    return out_path
 
 
 def main() -> None:
@@ -30,16 +62,20 @@ def main() -> None:
     )
     parser.add_argument(
         "-c", "--catalog-dir",
-        required=True,
         metavar="DIR",
-        help="Path to the catalog directory containing indexes built by vectrap-build-db.",
+        default=str(_DEFAULT_CATALOG_DIR),
+        help=(
+            "Path to the catalog directory containing indexes built by "
+            "vectrap-build-db. Defaults to the bundled catalog directory "
+            f"({_DEFAULT_CATALOG_DIR})."
+        ),
     )
     parser.add_argument(
         "--min-identity",
         type=float,
         default=0.90,
         metavar="FLOAT",
-        help="Minimum sequence identity for minimap2 hits (default: 0.90).",
+        help="Minimum sequence identity for mappy hits (default: 0.90).",
     )
     parser.add_argument(
         "--min-coverage",
@@ -49,17 +85,45 @@ def main() -> None:
         help="Minimum fraction of catalog sequence covered by a hit (default: 0.80).",
     )
     parser.add_argument(
+        "-t", "--threads",
+        type=int,
+        default=4,
+        metavar="INT",
+        help="Number of threads for mappy aligner (default: 4).",
+    )
+    parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Print progress messages to stderr.",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version="%(prog)s 0.1.0",
     )
     args = parser.parse_args()
 
-    # pipeline logic will be wired here once scanner and scorer modules are complete
-    raise NotImplementedError(
-        "Pipeline modules are not yet implemented. "
-        "See https://github.com/rustam-bioinfo/vectrap for development status."
+    input_path   = Path(args.input).resolve()
+    output_dir   = Path(args.output).resolve()
+    catalog_dir  = Path(args.catalog_dir).resolve()
+
+    if not input_path.exists():
+        print(f"ERROR: input file not found: {input_path}", file=sys.stderr)
+        sys.exit(1)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    hits = scan(
+        query_fasta=input_path,
+        catalog_dir=catalog_dir,
+        min_identity=args.min_identity,
+        min_coverage=args.min_coverage,
+        threads=args.threads,
+        verbose=args.verbose,
     )
+
+    out_path = _write_tsv(hits, output_dir)
+    print(f"Done. {len(hits):,} hits written to {out_path}")
 
 
 if __name__ == "__main__":

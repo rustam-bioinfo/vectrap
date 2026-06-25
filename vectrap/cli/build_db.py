@@ -13,21 +13,22 @@ Usage
 Outputs (written to the catalog directory)
 ------------------------------------------
     combined_long.fasta   sequences >= MIN_LEN bp
-    combined_long.mmi     minimap2 index
+    combined_long.mmi     mappy/minimap2 index
     short_index.pkl       exact k-mer hash {seq: [id, ...]}
 """
 
 import argparse
 import hashlib
 import pickle
-import subprocess
 import sys
 import urllib.request
 from pathlib import Path
 
+import mappy
+
 from vectrap.modules.utils import read_fasta, write_fasta
 
-ZENODO_DOI = "10.5281/zenodo.20844271"
+ZENODO_DOI  = "10.5281/zenodo.20844271"
 ZENODO_BASE = "https://zenodo.org/records/20844271/files"
 
 CATALOG_FILES = [
@@ -48,7 +49,7 @@ CATALOG_FILES = [
     "catalog_manifest.tsv",
 ]
 
-MIN_LEN = 50  # bp threshold between minimap2 and k-mer hash
+MIN_LEN = 50  # bp threshold between mappy aligner and k-mer hash
 
 
 def _default_catalog_dir() -> Path:
@@ -76,7 +77,7 @@ def verify_manifest(catalog_dir: Path) -> None:
         return
     errors = []
     with open(manifest_path) as fh:
-        next(fh)
+        next(fh)  # skip header
         for line in fh:
             parts = line.rstrip().split("\t")
             if len(parts) < 4:
@@ -99,7 +100,7 @@ def verify_manifest(catalog_dir: Path) -> None:
 
 def build_indexes(catalog_dir: Path) -> None:
     long_records = []
-    short_index = {}
+    short_index: dict = {}
 
     for fname in CATALOG_FILES:
         if not fname.endswith(".fasta.gz"):
@@ -115,22 +116,24 @@ def build_indexes(catalog_dir: Path) -> None:
                 short_index.setdefault(seq, []).append(seq_id)
 
     print(f"  long sequences (>= {MIN_LEN} bp): {len(long_records):,}")
-    print(f"  short sequences (< {MIN_LEN} bp):  {len(short_index):,} unique")
+    print(f"  short sequences (<  {MIN_LEN} bp): {len(short_index):,} unique")
 
+    # Write combined long FASTA
     long_fasta = catalog_dir / "combined_long.fasta"
     write_fasta(long_records, long_fasta)
     print(f"  wrote {long_fasta}")
 
+    # Build mappy index (.mmi) -- no external binary required
     mmi_path = catalog_dir / "combined_long.mmi"
-    cmd = ["minimap2", "-d", str(mmi_path), str(long_fasta)]
-    print(f"  building minimap2 index ...")
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        print("ERROR: minimap2 failed:")
-        print(result.stderr)
+    print("  building mappy index ...")
+    aligner = mappy.Aligner(str(long_fasta), preset="map-ont", best_n=10)
+    if not aligner:
+        print("ERROR: mappy could not index the long catalog FASTA.", file=sys.stderr)
         sys.exit(1)
+    aligner.dump_index(str(mmi_path))
     print(f"  wrote {mmi_path}")
 
+    # Write k-mer hash for short sequences
     pkl_path = catalog_dir / "short_index.pkl"
     with open(pkl_path, "wb") as fh:
         pickle.dump(short_index, fh, protocol=pickle.HIGHEST_PROTOCOL)
@@ -151,7 +154,7 @@ def main() -> None:
     group.add_argument(
         "--catalog-dir",
         metavar="DIR",
-        help="Path to a directory containing locally provided catalog files.",
+        help="Path to a directory containing locally provided catalog FASTA files.",
     )
     args = parser.parse_args()
 
