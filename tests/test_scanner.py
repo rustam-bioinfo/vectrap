@@ -41,7 +41,6 @@ def _make_paf_line(
     mapq=60,
     tags="de:f:0.02",
 ) -> str:
-    """Build a minimal valid PAF line string."""
     return "\t".join([
         q_name, str(q_len), str(q_start), str(q_end), strand,
         t_name, str(t_len), str(t_start), str(t_end),
@@ -51,12 +50,9 @@ def _make_paf_line(
 
 
 def _make_catalog_dir(tmp_path: Path, short_index: dict) -> Path:
-    """Write fake catalog indexes to *tmp_path/catalogs*."""
     catalog_dir = tmp_path / "catalogs"
     catalog_dir.mkdir()
-    # Fake .mmi (just needs to exist for path checks)
     (catalog_dir / "combined_long.mmi").touch()
-    # Real pkl
     pkl = catalog_dir / "short_index.pkl"
     with open(pkl, "wb") as fh:
         pickle.dump(short_index, fh)
@@ -122,7 +118,6 @@ class TestParsePafLine:
         assert abs(hit.identity - 0.95) < 1e-9
 
     def test_identity_from_nm_fallback(self):
-        # No de or dv tag; identity = n_match / aln_len = 95/100 = 0.95
         line = _make_paf_line(n_match=95, aln_len=100, tags="")
         hit = _parse_paf_line(line, min_identity=0.90, min_coverage=0.80)
         assert hit is not None
@@ -134,7 +129,6 @@ class TestParsePafLine:
         assert hit is None
 
     def test_filtered_by_low_coverage(self):
-        # t_start=0, t_end=50, t_len=100 => coverage=0.50
         line = _make_paf_line(t_start=0, t_end=50, t_len=100, tags="de:f:0.02")
         hit = _parse_paf_line(line, min_identity=0.90, min_coverage=0.80)
         assert hit is None
@@ -155,7 +149,6 @@ class TestParsePafLine:
         assert _parse_paf_line("too\tshort", 0.90, 0.80) is None
 
     def test_coverage_calculation(self):
-        # t_start=0, t_end=90, t_len=100 => coverage=0.90
         line = _make_paf_line(t_start=0, t_end=90, t_len=100, tags="de:f:0.01")
         hit = _parse_paf_line(line, min_identity=0.90, min_coverage=0.80)
         assert hit is not None
@@ -186,17 +179,24 @@ class TestKmerScanSequence:
         assert fwd[0].source == "kmer"
 
     def test_exact_reverse_match(self):
+        """rev_comp(kmer) placed in contig must produce a '-' hit at those coords."""
         kmer = "ATCGATCG"
-        rc = rev_comp(kmer)
-        contig = "NNNN" + rc + "NNNN"
+        rc   = rev_comp(kmer)       # "CGATCGAT"
+        # contig: NNNN + CGATCGAT + NNNN  (length=16)
+        contig  = "NNNN" + rc + "NNNN"
+        seq_len = len(contig)       # 16
+        klen    = len(kmer)         # 8
+
         hits = _kmer_scan_sequence("c1", contig, {kmer: ["cat1"]})
         rev_hits = [h for h in hits if h.strand == "-"]
         assert len(rev_hits) == 1
-        # forward-strand coordinates: fwd_start = len(contig) - (4 + len(rc))
-        expected_start = len(contig) - (4 + len(rc))
-        expected_end   = len(contig) - 4
-        assert rev_hits[0].start == expected_start
-        assert rev_hits[0].end   == expected_end
+
+        # rc_seq = rev_comp(contig) = NNNN + ATCGATCG + NNNN
+        # kmer found at rc_idx=4
+        # fwd_start = 16 - (4 + 8) = 4
+        # fwd_end   = 16 - 4       = 12
+        assert rev_hits[0].start == 4
+        assert rev_hits[0].end   == 12
 
     def test_multiple_occurrences_found(self):
         kmer = "ATCG"
@@ -208,37 +208,41 @@ class TestKmerScanSequence:
         assert fwd[1].start == 8
 
     def test_palindrome_not_double_counted(self):
-        # ACGT is its own reverse complement
-        palindrome = "ACGT"
+        palindrome = "ACGT"   # rev_comp("ACGT") == "ACGT"
         assert rev_comp(palindrome) == palindrome
         contig = palindrome * 3
         hits = _kmer_scan_sequence("c1", contig, {palindrome: ["cat1"]})
-        # Only forward hits; reverse is skipped for palindromes
         strands = {h.strand for h in hits}
         assert "-" not in strands
 
     def test_kmer_longer_than_contig_skipped(self):
         kmer = "A" * 100
-        contig = "AAAA"
-        hits = _kmer_scan_sequence("c1", contig, {kmer: ["cat1"]})
+        hits = _kmer_scan_sequence("c1", "AAAA", {kmer: ["cat1"]})
         assert hits == []
 
     def test_multiple_catalog_ids_for_same_kmer(self):
         kmer = "ATCGATCG"
-        contig = kmer
-        hits = _kmer_scan_sequence("c1", contig, {kmer: ["cat1", "cat2", "cat3"]})
+        hits = _kmer_scan_sequence("c1", kmer, {kmer: ["cat1", "cat2", "cat3"]})
         fwd = [h for h in hits if h.strand == "+"]
         assert len(fwd) == 3
-        cat_ids = {h.catalog_id for h in fwd}
-        assert cat_ids == {"cat1", "cat2", "cat3"}
+        assert {h.catalog_id for h in fwd} == {"cat1", "cat2", "cat3"}
 
     def test_empty_index_returns_no_hits(self):
-        hits = _kmer_scan_sequence("c1", "ACGTACGT", {})
-        assert hits == []
+        assert _kmer_scan_sequence("c1", "ACGTACGT", {}) == []
 
     def test_no_match_returns_empty(self):
-        hits = _kmer_scan_sequence("c1", "AAAAAAA", {"CCCCCC": ["cat1"]})
-        assert hits == []
+        assert _kmer_scan_sequence("c1", "AAAAAAA", {"CCCCCC": ["cat1"]}) == []
+
+    def test_rc_hit_coordinates_roundtrip(self):
+        """contig[fwd_start:fwd_end] must equal rev_comp(kmer)."""
+        kmer   = "GGTTAACC"
+        rc     = rev_comp(kmer)
+        contig = "TTTT" + rc + "TTTT"
+        hits   = _kmer_scan_sequence("c1", contig, {kmer: ["cat1"]})
+        rev_hits = [h for h in hits if h.strand == "-"]
+        assert len(rev_hits) == 1
+        h = rev_hits[0]
+        assert contig[h.start:h.end] == rc
 
 
 # ---------------------------------------------------------------------------
@@ -247,13 +251,12 @@ class TestKmerScanSequence:
 
 class TestRunKmerScanner:
     def test_scans_all_contigs(self, tmp_path):
-        kmer = "ATCGATCG"
+        kmer  = "ATCGATCG"
         fasta = tmp_path / "query.fasta"
         fasta.write_text(">c1\n" + kmer + "NNNN\n>c2\nNNNN" + kmer + "\n")
         pkl = tmp_path / "short_index.pkl"
         with open(pkl, "wb") as fh:
             pickle.dump({kmer: ["cat1"]}, fh)
-        from vectrap.modules.homology_scanner import _run_kmer_scanner
         hits = _run_kmer_scanner(fasta, pkl)
         contigs = {h.contig for h in hits if h.strand == "+"}
         assert "c1" in contigs
@@ -265,9 +268,7 @@ class TestRunKmerScanner:
         pkl = tmp_path / "short_index.pkl"
         with open(pkl, "wb") as fh:
             pickle.dump({}, fh)
-        from vectrap.modules.homology_scanner import _run_kmer_scanner
-        hits = _run_kmer_scanner(fasta, pkl)
-        assert hits == []
+        assert _run_kmer_scanner(fasta, pkl) == []
 
 
 # ---------------------------------------------------------------------------
@@ -279,7 +280,6 @@ class TestScan:
         catalog_dir = tmp_path / "catalogs"
         catalog_dir.mkdir()
         (catalog_dir / "short_index.pkl").touch()
-        # .mmi not created
         with pytest.raises(FileNotFoundError, match="minimap2 index not found"):
             scan(tmp_path / "q.fasta", catalog_dir)
 
@@ -287,19 +287,15 @@ class TestScan:
         catalog_dir = tmp_path / "catalogs"
         catalog_dir.mkdir()
         (catalog_dir / "combined_long.mmi").touch()
-        # pkl not created
         with pytest.raises(FileNotFoundError, match="k-mer index not found"):
             scan(tmp_path / "q.fasta", catalog_dir)
 
     def test_returns_combined_hits(self, tmp_path):
-        """Combined minimap2 + k-mer hits are returned."""
-        kmer = "ATCGATCG"
+        kmer  = "ATCGATCG"
         fasta = tmp_path / "query.fasta"
         fasta.write_text(">c1\n" + kmer + "NNNNNNNNNN\n")
-
         catalog_dir = _make_catalog_dir(tmp_path, {kmer: ["short_cat"]})
 
-        # Fake a single minimap2 PAF hit
         fake_paf = _make_paf_line(
             q_name="c1", q_start=0, q_end=50,
             t_name="long_cat", t_len=50, t_end=50,

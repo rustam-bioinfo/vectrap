@@ -103,8 +103,8 @@ class HomologyHit:
 # minimap2 PAF scanner
 # ---------------------------------------------------------------------------
 
-_PAF_QNAME = 0
-_PAF_QLEN  = 1
+_PAF_QNAME  = 0
+_PAF_QLEN   = 1
 _PAF_QSTART = 2
 _PAF_QEND   = 3
 _PAF_STRAND = 4
@@ -133,7 +133,7 @@ def _identity_from_tags(tags: dict[str, str], n_match: int, aln_len: int) -> flo
     Preference order:
     1. ``de:f:`` tag (minimap2 gap-compressed divergence) -- most accurate.
     2. ``dv:f:`` tag (sequence divergence).
-    3. Fallback: ``NM / aln_len`` approximation.
+    3. Fallback: ``n_match / aln_len`` approximation.
     """
     if "de" in tags:
         try:
@@ -183,15 +183,13 @@ def _parse_paf_line(line: str, min_identity: float, min_coverage: float) -> Homo
         return None
 
     # Coverage is measured on the *catalog* (target) sequence.
-    covered = t_end - t_start
+    covered  = t_end - t_start
     coverage = covered / t_len if t_len > 0 else 0.0
     if coverage < min_coverage:
         return None
 
-    # Coordinates in PAF are always on the query forward strand when the
-    # strand is '+'.  When strand is '-' they are still query-forward, but
-    # the *alignment* is to the reverse complement of the query region.
-    # We therefore use q_start/q_end as-is for both strands.
+    # PAF q_start/q_end are always on the query forward strand for both
+    # '+' and '-' alignments, so we use them directly.
     return HomologyHit(
         contig=q_name,
         start=q_start,
@@ -224,7 +222,7 @@ def _run_minimap2(
     min_coverage : float
         Minimum catalog sequence coverage threshold (e.g. 0.80).
     threads : int
-        Number of minimap2 threads.
+        Number of threads passed to minimap2 (default: 4).
 
     Returns
     -------
@@ -240,19 +238,15 @@ def _run_minimap2(
     """
     cmd = [
         "minimap2",
-        "-c",             # output CIGAR strings in PAF
-        "--cs=short",     # short cs tag for divergence estimation
+        "-c",           # output CIGAR strings in PAF
+        "--cs=short",   # short cs tag for divergence estimation
         "-t", str(threads),
         str(index_path),
         str(query_fasta),
     ]
 
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True)
     except FileNotFoundError:
         raise FileNotFoundError(
             "minimap2 not found. Install it and ensure it is in your PATH. "
@@ -270,7 +264,6 @@ def _run_minimap2(
         hit = _parse_paf_line(line, min_identity, min_coverage)
         if hit is not None:
             hits.append(hit)
-
     return hits
 
 
@@ -285,10 +278,26 @@ def _kmer_scan_sequence(
 ) -> List[HomologyHit]:
     """Search *contig_seq* for all exact occurrences of every k-mer in *short_index*.
 
-    Both the forward sequence and a reverse complement pass are performed.
-    Overlapping matches for the same k-mer are all reported (non-deduplicated);
-    deduplication of overlapping hits from different catalog entries is left to
-    the scorer.
+    Strategy
+    --------
+    For each catalog k-mer we perform two passes over the contig:
+
+    **Forward pass** -- search ``contig_seq`` directly for ``kmer``.
+    Matches report ``strand='+'``.
+
+    **Reverse-complement pass** -- the RC of the contig is
+    ``rc_seq = rev_comp(contig_seq)``.  A k-mer that sits on the minus strand
+    of the original contig appears as ``kmer`` itself inside ``rc_seq``
+    (because ``rev_comp(rev_comp(kmer)) == kmer``).  So we search ``rc_seq``
+    for the *original* ``kmer`` (not ``rev_comp(kmer)``), then map the
+    match position back to forward-strand coordinates::
+
+        fwd_start = seq_len - (rc_idx + klen)
+        fwd_end   = seq_len - rc_idx
+
+    Palindromes (``rev_comp(kmer) == kmer``) are already fully captured by
+    the forward pass, so the RC pass is skipped for them to avoid double
+    reporting.
 
     Parameters
     ----------
@@ -307,14 +316,16 @@ def _kmer_scan_sequence(
     """
     hits: List[HomologyHit] = []
     seq_len = len(contig_seq)
-    rc_seq = rev_comp(contig_seq)
+    rc_seq  = rev_comp(contig_seq)
 
     for kmer, catalog_ids in short_index.items():
         klen = len(kmer)
         if klen > seq_len:
             continue
 
-        # Forward strand search
+        # ------------------------------------------------------------------
+        # Forward pass: search contig_seq for kmer
+        # ------------------------------------------------------------------
         pos = 0
         while True:
             idx = contig_seq.find(kmer, pos)
@@ -333,18 +344,21 @@ def _kmer_scan_sequence(
                 ))
             pos = idx + 1
 
-        # Reverse complement search -- convert rc coordinates back to
-        # forward strand: fwd_start = seq_len - rc_end
-        rc_kmer = rev_comp(kmer)
-        # Avoid double-counting palindromes
-        if rc_kmer == kmer:
+        # ------------------------------------------------------------------
+        # Reverse-complement pass: search rc_seq for kmer
+        # (a minus-strand occurrence of kmer in the original contig appears
+        # as kmer in rc_seq at the mirrored position)
+        # Skip palindromes -- they are fully covered by the forward pass.
+        # ------------------------------------------------------------------
+        if rev_comp(kmer) == kmer:
             continue
 
         pos = 0
         while True:
-            idx = rc_seq.find(rc_kmer, pos)
+            idx = rc_seq.find(kmer, pos)
             if idx == -1:
                 break
+            # Map rc_seq coordinates back to forward-strand positions.
             fwd_start = seq_len - (idx + klen)
             fwd_end   = seq_len - idx
             for cat_id in catalog_ids:
