@@ -1,6 +1,5 @@
 # VecTrap
 
-> **Don't let synthetic vector contamination slip into your pathogen assemblies. Catch them with VecTrap.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
