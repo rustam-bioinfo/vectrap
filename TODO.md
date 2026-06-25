@@ -16,35 +16,46 @@ This file tracks all pending tasks for the complete rewrite of VecTrap into a ca
 
 ## 2. Repository Structure
 
-- [ ] Create `vectrap/modules/` new source files (see section 3)
-- [ ] Create `db/build_db.py` -- one-time catalog download and index preparation script
-- [ ] Create `vectrap.py` -- unified CLI entry point
-- [ ] Remove all `.gitkeep` placeholders once real files are added
-- [ ] Add `vectrap/catalogs/README.md` explaining catalog format and how to obtain catalog files from Zenodo
-- [ ] Update `requirements.txt` with all real dependencies once scanning strategy is finalized
-- [ ] Add `.gitignore` entries for BLAST db index files (`*.nin`, `*.nhr`, `*.nsq`, `*.nsi`, `*.nsd`, `*.not`, `*.ntf`, `*.nto`) and minimap2 indexes (`*.mmi`)
+- [x] Restructure for PyPI packaging with `pyproject.toml`
+- [x] Create `vectrap/cli/` with `build_db.py` and `run.py` entry points
+- [x] Create `vectrap/modules/__init__.py` and `vectrap/__init__.py`
+- [x] Add `vectrap/catalogs/README.md` explaining catalog format and Zenodo download
+- [x] Remove old `db/` top-level directory
+- [ ] Create `vectrap/modules/homology_scanner.py`
+- [ ] Create `vectrap/modules/scorer.py`
+- [ ] Wire scanner and scorer into `vectrap/cli/run.py`
+- [ ] Update `requirements.txt` with all dependencies once scanning strategy is finalized
+- [ ] Add `.gitignore` entries for minimap2 indexes (`*.mmi`) and pickle files (`*.pkl`)
 
 ---
 
 ## 3. Core Module Development
 
-### 3.1 Scanning strategy decision
-- [ ] Decide between BLAST and minimap2 for long features (>= 50 bp)
-- [ ] Decide between exact k-mer hashing and short-read aligner for short features (< 50 bp: `primer_bind`, `RBS`)
+### 3.1 Scanning strategy
+- [x] Use minimap2 for long features (>= 50 bp)
+- [x] Use exact k-mer hashing for short features (< 50 bp)
 
 ### 3.2 `vectrap/modules/utils.py`
-- [ ] `read_fasta(path)` -- plain and gzipped FASTA reader
-- [ ] `rev_comp(seq)` -- reverse complement
-- [ ] `open_text(path)` -- transparent gz/plain opener
+- [x] `read_fasta(path)` -- plain and gzipped FASTA reader
+- [x] `rev_comp(seq)` -- reverse complement
+- [x] `open_text(path)` -- transparent gz/plain opener
+- [x] `write_fasta(records, path)` -- plain and gzipped FASTA writer
 
-### 3.3 `vectrap/modules/homology_scanner.py`
-- [ ] Implement long-feature homology scan (BLAST or minimap2)
-- [ ] Implement short-feature exact k-mer hash scan
-- [ ] Bidirectional strand scanning with 0-based coordinate output
-- [ ] Per-catalog configurable identity and coverage thresholds
-- [ ] Return unified `HomologyHit` dataclass per hit
+### 3.3 `vectrap/cli/build_db.py`
+- [x] `--download` mode: fetch catalog FASTA files from Zenodo DOI `10.5281/zenodo.20844271`
+- [x] `--catalog-dir` mode: use locally provided FASTA files
+- [x] Length-based routing: long to minimap2 index, short to k-mer hash pickle
+- [x] Validate downloaded files against `catalog_manifest.tsv` checksums
 
-### 3.4 `vectrap/modules/scorer.py`
+### 3.4 `vectrap/modules/homology_scanner.py`
+- [ ] `HomologyHit` dataclass (contig, start, end, strand, identity, coverage, catalog_id)
+- [ ] minimap2 PAF parser
+- [ ] minimap2 subprocess runner with identity and coverage filters
+- [ ] Exact k-mer hash scanner for short sequences
+- [ ] Bidirectional strand handling with 0-based coordinate output
+- [ ] Single `scan(query_fasta, catalog_dir, min_identity, min_coverage)` interface
+
+### 3.5 `vectrap/modules/scorer.py`
 - [ ] Define `CATALOG_TIERS` dict (PRIMARY vs SUPPORTIVE per feature type)
 - [ ] Define `SUPPORTIVE_WEIGHTS` dict (per feature type)
 - [ ] Implement per-contig evidence aggregation
@@ -52,18 +63,12 @@ This file tracks all pending tasks for the complete rewrite of VecTrap into a ca
 - [ ] Define and document `VECTOR_THRESHOLD` default value
 - [ ] Validate weights empirically using known positive and negative control sequences
 
-### 3.5 `vectrap.py`
-- [ ] Argument parser: `-i`, `-o`, `-c`, `--min-identity`, `--min-coverage`
-- [ ] Orchestrate scanner and scorer
+### 3.6 `vectrap/cli/run.py`
+- [x] Argument parser: `-i`, `-o`, `-c`, `--min-identity`, `--min-coverage`, `--version`
+- [ ] Wire scanner and scorer
 - [ ] Write `*.all_hits.tsv` per-hit output
 - [ ] Write `*.verdicts.tsv` per-contig classification output
 - [ ] Print run summary to stdout
-
-### 3.6 `db/build_db.py`
-- [ ] `--download` mode: fetch catalog FASTA files from Zenodo DOI `10.5281/zenodo.20844271`
-- [ ] `--catalog-dir` mode: use locally provided FASTA files
-- [ ] Build BLAST or minimap2 indexes depending on chosen strategy
-- [ ] Validate downloaded files against `catalog_manifest.tsv` checksums
 
 ---
 
@@ -95,3 +100,4 @@ This file tracks all pending tasks for the complete rewrite of VecTrap into a ca
 - [ ] Add VecTrap citation placeholder to `README.md` once preprint is posted
 - [ ] Add Zenodo catalog DOI to manuscript methods
 - [ ] Add tool version to all output file headers for reproducibility
+- [ ] Publish to PyPI

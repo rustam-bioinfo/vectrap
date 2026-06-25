@@ -25,7 +25,7 @@ The VecTrap sequence catalog is deposited on Zenodo and must be downloaded separ
 
 **DOI: [10.5281/zenodo.20844271](https://doi.org/10.5281/zenodo.20844271)**
 
-The catalog consists of 14 FASTA files, one per feature type category, plus a manifest file. Download and index preparation is handled automatically by `db/build_db.py` (see Quick Start below).
+The catalog consists of 14 FASTA files, one per feature type category, plus a manifest file. Download and index preparation is handled automatically by the `vectrap-build-db` command (see Quick Start below).
 
 ---
 
@@ -63,11 +63,17 @@ The catalog consists of 14 FASTA files, one per feature type category, plus a ma
 
 ```
 vectrap/
-    catalogs/      FASTA sequence catalogs and search indexes
-    modules/       Core scanning and scoring modules
-db/
-    build_db.py    One-time catalog download and index preparation
-vectrap.py         Unified CLI entry point
+    __init__.py
+    cli/
+        build_db.py    vectrap-build-db entry point
+        run.py         vectrap entry point
+    modules/
+        utils.py
+        homology_scanner.py
+        scorer.py
+    catalogs/
+        README.md      how to obtain catalog files
+pyproject.toml
 requirements.txt
 ```
 
@@ -75,12 +81,18 @@ requirements.txt
 
 ## Installation
 
-VecTrap requires Python 3.8 or higher.
+VecTrap requires Python 3.8 or higher and [minimap2](https://github.com/lh3/minimap2) available in `PATH`.
 
 ```bash
 git clone https://github.com/rustam-bioinfo/vectrap.git
 cd vectrap
-pip install -r requirements.txt
+pip install .
+```
+
+Or once published on PyPI:
+
+```bash
+pip install vectrap
 ```
 
 ---
@@ -88,14 +100,14 @@ pip install -r requirements.txt
 ## Quick Start
 
 ```bash
-# Download catalog files from Zenodo and prepare indexes (run once after cloning)
-python db/build_db.py --download
+# Download catalog files from Zenodo and prepare indexes (run once after installation)
+vectrap-build-db --download
 
 # Or use locally provided catalog files
-python db/build_db.py --catalog-dir /path/to/catalogs/
+vectrap-build-db --catalog-dir /path/to/catalogs/
 
-# Run full pipeline
-python vectrap.py -i assembly.fasta -o results/ -c vectrap/catalogs/
+# Run the pipeline
+vectrap -i assembly.fasta -o results/ -c vectrap/catalogs/
 ```
 
 ---
