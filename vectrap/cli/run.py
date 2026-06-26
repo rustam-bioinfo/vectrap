@@ -19,6 +19,8 @@ Output files (prefixed with sample name)
 import argparse
 import csv
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
 
 from vectrap.modules.homology_scanner import scan
@@ -29,6 +31,18 @@ from vectrap.modules.utils import read_fasta
 _DEFAULT_CATALOG_DIR = Path(__file__).resolve().parents[2] / "vectrap" / "catalogs"
 
 _FASTA_SUFFIXES = (".fasta", ".fa", ".fna", ".fasta.gz", ".fa.gz", ".fna.gz")
+
+
+def _ts() -> str:
+    return datetime.now().strftime("[%H:%M:%S]")
+
+
+def _elapsed(t0: float) -> str:
+    secs = time.time() - t0
+    if secs < 60:
+        return f"{secs:.1f}s"
+    m, s = divmod(int(secs), 60)
+    return f"{m}m{s:02d}s"
 
 
 def _collect_inputs(path: Path) -> list[Path]:
@@ -56,7 +70,6 @@ def _collect_inputs(path: Path) -> list[Path]:
 
 
 def _sample_stem(fasta_path: Path) -> str:
-    """Return the sample name by stripping all known FASTA suffixes."""
     name = fasta_path.name
     for s in _FASTA_SUFFIXES:
         if name.endswith(s):
@@ -138,12 +151,16 @@ def _process_one(
     catalog_dir: Path,
     min_identity: float,
     min_coverage: float,
+    min_len: int,
+    best_n: int,
     threads: int,
     verbose: bool,
     label: str = "",
 ) -> None:
     """Run the full pipeline on a single FASTA file."""
     sample = _sample_stem(input_path)
+    t0 = time.time()
+
     contig_lengths = _get_contig_lengths(input_path)
 
     hits = scan(
@@ -151,6 +168,8 @@ def _process_one(
         catalog_dir=catalog_dir,
         min_identity=min_identity,
         min_coverage=min_coverage,
+        min_len=min_len,
+        best_n=best_n,
         threads=threads,
         verbose=verbose,
     )
@@ -160,7 +179,11 @@ def _process_one(
     _write_verdicts_tsv(summaries, output_dir, sample)
 
     prefix = f"{label} " if label else ""
-    print(f"{prefix}{sample}  hits={len(hits):,}  contigs_with_hits={len(summaries):,}")
+    print(
+        f"{_ts()} {prefix}{sample}  "
+        f"hits={len(hits):,}  contigs_with_hits={len(summaries):,}  "
+        f"elapsed={_elapsed(t0)}"
+    )
 
 
 def main() -> None:
@@ -181,10 +204,16 @@ def main() -> None:
                         help="Minimum sequence identity for mappy hits (default: 0.90).")
     parser.add_argument("--min-coverage", type=float, default=0.80, metavar="FLOAT",
                         help="Minimum fraction of catalog sequence covered by a hit (default: 0.80).")
+    parser.add_argument("--min-len", type=int, default=50, metavar="INT",
+                        help=("Minimum sequence length (bp) to use the mappy aligner; "
+                              "shorter sequences use exact k-mer matching. "
+                              "Must match the value used when building the catalog indexes (default: 50)."))
+    parser.add_argument("--best-n", type=int, default=10, metavar="INT",
+                        help="Maximum number of mappy alignments reported per query sequence (default: 10).")
     parser.add_argument("-t", "--threads", type=int, default=4, metavar="INT",
                         help="Number of threads for mappy aligner (default: 4).")
     parser.add_argument("-v", "--verbose", action="store_true",
-                        help="Print detailed progress messages to stderr.")
+                        help="Print detailed per-stage progress messages to stderr.")
     parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")
     args = parser.parse_args()
 
@@ -197,7 +226,7 @@ def main() -> None:
 
     n = len(fasta_files)
     if n > 1:
-        print(f"Found {n} FASTA files in {input_path}")
+        print(f"{_ts()} Found {n} FASTA files in {input_path}")
 
     for i, fasta in enumerate(fasta_files, 1):
         label = f"[{i}/{n}]" if n > 1 else ""
@@ -207,12 +236,14 @@ def main() -> None:
             catalog_dir=catalog_dir,
             min_identity=args.min_identity,
             min_coverage=args.min_coverage,
+            min_len=args.min_len,
+            best_n=args.best_n,
             threads=args.threads,
             verbose=args.verbose,
             label=label,
         )
 
-    print("Done.")
+    print(f"{_ts()} Done.")
 
 
 if __name__ == "__main__":
