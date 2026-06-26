@@ -14,11 +14,20 @@ from pathlib import Path
 
 from vectrap.modules.homology_scanner import scan
 from vectrap.modules.scorer import summarize
+from vectrap.modules.utils import read_fasta
 
 
 # Default catalog directory bundled inside the package (populated by
 # vectrap-build-db --download).
 _DEFAULT_CATALOG_DIR = Path(__file__).resolve().parents[2] / "vectrap" / "catalogs"
+
+
+def _get_contig_lengths(fasta_path: Path) -> dict[str, int]:
+    """Return a dict mapping contig name -> sequence length."""
+    lengths = {}
+    for header, seq in read_fasta(fasta_path):
+        lengths[header.split()[0]] = len(seq)
+    return lengths
 
 
 def _write_hits_tsv(hits, output_dir: Path) -> Path:
@@ -57,6 +66,7 @@ def _write_verdicts_tsv(summaries, output_dir: Path) -> Path:
     out_path = output_dir / "vectrap_verdicts.tsv"
     fieldnames = [
         "contig",
+        "contig_length",
         "total_hits",
         "engineered_hits",
         "context_dependent_hits",
@@ -65,6 +75,7 @@ def _write_verdicts_tsv(summaries, output_dir: Path) -> Path:
         "unique_feature_types",
         "unique_labels",
         "covered_bp",
+        "covered_fraction",
         "top_label",
         "top_tier",
         "top_confidence",
@@ -76,6 +87,7 @@ def _write_verdicts_tsv(summaries, output_dir: Path) -> Path:
         for s in summaries:
             writer.writerow({
                 "contig":                   s.contig,
+                "contig_length":            s.contig_length,
                 "total_hits":               s.total_hits,
                 "engineered_hits":          s.engineered_hits,
                 "context_dependent_hits":   s.context_dependent_hits,
@@ -84,6 +96,7 @@ def _write_verdicts_tsv(summaries, output_dir: Path) -> Path:
                 "unique_feature_types":     s.unique_feature_types,
                 "unique_labels":            s.unique_labels,
                 "covered_bp":               s.covered_bp,
+                "covered_fraction":         f"{s.covered_fraction:.6f}",
                 "top_label":                s.top_label,
                 "top_tier":                 s.top_tier,
                 "top_confidence":           s.top_confidence,
@@ -162,6 +175,9 @@ def main() -> None:
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Read contig lengths before scanning (single FASTA pass)
+    contig_lengths = _get_contig_lengths(input_path)
+
     hits = scan(
         query_fasta=input_path,
         catalog_dir=catalog_dir,
@@ -174,7 +190,7 @@ def main() -> None:
     hits_path = _write_hits_tsv(hits, output_dir)
     print(f"  hits    : {len(hits):,} written to {hits_path}")
 
-    summaries = summarize(hits)
+    summaries = summarize(hits, contig_lengths)
     verdicts_path = _write_verdicts_tsv(summaries, output_dir)
     print(f"  contigs : {len(summaries):,} with hits written to {verdicts_path}")
     print("Done.")

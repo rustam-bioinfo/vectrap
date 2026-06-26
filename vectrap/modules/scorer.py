@@ -7,14 +7,14 @@ classification logic.  The summary is written to ``verdicts.tsv`` by
 
 Public API
 ----------
-    summarize(hits) -> List[ContigSummary]
+    summarize(hits, contig_lengths) -> List[ContigSummary]
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import List
+from typing import Dict, List
 
 from vectrap.modules.homology_scanner import HomologyHit
 
@@ -31,6 +31,8 @@ class ContigSummary:
     ----------
     contig : str
         Contig name (FASTA header first token).
+    contig_length : int
+        Length of the contig in bp (0 if not available).
     total_hits : int
         Total number of hits (mappy + kmer, before overlap merging).
     engineered_hits : int
@@ -47,6 +49,8 @@ class ContigSummary:
         Number of distinct label values among all hits.
     covered_bp : int
         Total non-overlapping base pairs on the contig covered by hits.
+    covered_fraction : float
+        covered_bp / contig_length, or 0.0 if contig_length is unknown.
     top_label : str
         Label of the hit with the highest identity*coverage score.
     top_tier : str
@@ -58,6 +62,7 @@ class ContigSummary:
     """
 
     contig: str
+    contig_length: int = 0
     total_hits: int = 0
     engineered_hits: int = 0
     context_dependent_hits: int = 0
@@ -66,6 +71,7 @@ class ContigSummary:
     unique_feature_types: int = 0
     unique_labels: int = 0
     covered_bp: int = 0
+    covered_fraction: float = 0.0
     top_label: str = ""
     top_tier: str = ""
     top_confidence: str = ""
@@ -77,18 +83,7 @@ class ContigSummary:
 # ---------------------------------------------------------------------------
 
 def _merge_intervals(intervals: list[tuple[int, int]]) -> list[tuple[int, int]]:
-    """Merge overlapping or adjacent intervals and return sorted non-overlapping list.
-
-    Parameters
-    ----------
-    intervals : list of (start, end) tuples
-        0-based half-open intervals.
-
-    Returns
-    -------
-    list of (start, end) tuples
-        Merged, sorted intervals.
-    """
+    """Merge overlapping or adjacent intervals and return sorted non-overlapping list."""
     if not intervals:
         return []
     sorted_ivs = sorted(intervals)
@@ -111,7 +106,10 @@ def _covered_bp(hits: list[HomologyHit]) -> int:
 # Public interface
 # ---------------------------------------------------------------------------
 
-def summarize(hits: List[HomologyHit]) -> List[ContigSummary]:
+def summarize(
+    hits: List[HomologyHit],
+    contig_lengths: Dict[str, int] | None = None,
+) -> List[ContigSummary]:
     """Aggregate enriched hits into per-contig statistics.
 
     Parameters
@@ -119,6 +117,10 @@ def summarize(hits: List[HomologyHit]) -> List[ContigSummary]:
     hits : list[HomologyHit]
         All hits returned by ``homology_scanner.scan()``, already enriched
         with tier/confidence/reasoning.
+    contig_lengths : dict[str, int], optional
+        Mapping of contig name -> length in bp, used to populate
+        ``contig_length`` and ``covered_fraction``.  If omitted or a contig
+        is not present, those fields default to 0 / 0.0.
 
     Returns
     -------
@@ -126,6 +128,9 @@ def summarize(hits: List[HomologyHit]) -> List[ContigSummary]:
         One entry per contig that had at least one hit, sorted by
         (engineered_hits DESC, context_dependent_hits DESC, contig ASC).
     """
+    if contig_lengths is None:
+        contig_lengths = {}
+
     # Group hits by contig
     by_contig: dict[str, list[HomologyHit]] = defaultdict(list)
     for hit in hits:
@@ -135,7 +140,8 @@ def summarize(hits: List[HomologyHit]) -> List[ContigSummary]:
 
     for contig, chits in by_contig.items():
         s = ContigSummary(contig=contig)
-        s.total_hits = len(chits)
+        s.contig_length = contig_lengths.get(contig, 0)
+        s.total_hits    = len(chits)
 
         for h in chits:
             t = (h.tier or "").upper()
@@ -151,6 +157,9 @@ def summarize(hits: List[HomologyHit]) -> List[ContigSummary]:
         s.unique_feature_types = len({h.feature_type for h in chits if h.feature_type})
         s.unique_labels        = len({h.label for h in chits if h.label})
         s.covered_bp           = _covered_bp(chits)
+        s.covered_fraction     = (
+            s.covered_bp / s.contig_length if s.contig_length > 0 else 0.0
+        )
 
         # Top hit by identity * coverage
         top = max(chits, key=lambda h: h.identity * h.coverage)
