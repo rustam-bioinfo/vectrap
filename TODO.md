@@ -19,8 +19,8 @@
 - [x] Create `vectrap/cli/` with `build_db.py` and `run.py` entry points
 - [x] Create `vectrap/modules/__init__.py` and `vectrap/__init__.py`
 - [x] Add `vectrap/catalogs/README.md` explaining catalog format and Zenodo download
-- [x] Set pinned dependencies in `pyproject.toml` (`mappy`, `pyahocorasick`, `numpy`, `biopython`)
-- [ ] Update `requirements.txt` to mirror `pyproject.toml` dependencies (currently only lists `biopython>=1.83`)
+- [x] Set all dependencies in `pyproject.toml` (`mappy`, `pyahocorasick`, `numpy`, `biopython`)
+- [x] Delete `requirements.txt` — redundant with `pyproject.toml`
 - [ ] Add `.gitignore` entries for `*.mmi` and `*.pkl` (currently missing from `.gitignore`)
 
 ---
