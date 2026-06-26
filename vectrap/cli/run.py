@@ -9,6 +9,11 @@ Usage
 
     # Directory of FASTA files
     vectrap -i genomes/ -o results/
+
+Output files (prefixed with sample name)
+-----------------------------------------
+    <sample>_hits.tsv
+    <sample>_contig_verdicts.tsv
 """
 
 import argparse
@@ -31,7 +36,6 @@ def _collect_inputs(path: Path) -> list[Path]:
 
     If *path* is a file, return ``[path]``.
     If *path* is a directory, return all FASTA files found in it (non-recursive).
-    Raises SystemExit if the path does not exist or no FASTA files are found.
     """
     if not path.exists():
         print(f"ERROR: input path not found: {path}", file=sys.stderr)
@@ -58,13 +62,22 @@ def _collect_inputs(path: Path) -> list[Path]:
     sys.exit(1)
 
 
+def _sample_stem(fasta_path: Path) -> str:
+    """Return the sample name by stripping all known FASTA suffixes."""
+    name = fasta_path.name
+    for s in _FASTA_SUFFIXES:
+        if name.endswith(s):
+            return name[: -len(s)]
+    return fasta_path.stem
+
+
 def _get_contig_lengths(fasta_path: Path) -> dict[str, int]:
     """Return a dict mapping contig name -> sequence length."""
     return {header.split()[0]: len(seq) for header, seq in read_fasta(fasta_path)}
 
 
-def _write_hits_tsv(hits, output_dir: Path) -> Path:
-    out_path = output_dir / "vectrap_hits.tsv"
+def _write_hits_tsv(hits, output_dir: Path, sample: str) -> Path:
+    out_path = output_dir / f"{sample}_hits.tsv"
     fieldnames = [
         "contig", "start", "end", "strand", "length",
         "identity", "coverage", "catalog_id", "source",
@@ -93,8 +106,8 @@ def _write_hits_tsv(hits, output_dir: Path) -> Path:
     return out_path
 
 
-def _write_verdicts_tsv(summaries, output_dir: Path) -> Path:
-    out_path = output_dir / "vectrap_verdicts.tsv"
+def _write_verdicts_tsv(summaries, output_dir: Path, sample: str) -> Path:
+    out_path = output_dir / f"{sample}_contig_verdicts.tsv"
     fieldnames = [
         "contig", "contig_length", "total_hits",
         "engineered_hits", "context_dependent_hits", "weak_hits", "unannotated_hits",
@@ -137,6 +150,7 @@ def _process_one(
     verbose: bool,
 ) -> None:
     """Run the full pipeline on a single FASTA file."""
+    sample = _sample_stem(input_path)
     contig_lengths = _get_contig_lengths(input_path)
 
     hits = scan(
@@ -148,12 +162,12 @@ def _process_one(
         verbose=verbose,
     )
 
-    hits_path     = _write_hits_tsv(hits, output_dir)
+    hits_path     = _write_hits_tsv(hits, output_dir, sample)
     summaries     = summarize(hits, contig_lengths)
-    verdicts_path = _write_verdicts_tsv(summaries, output_dir)
+    verdicts_path = _write_verdicts_tsv(summaries, output_dir, sample)
 
-    print(f"  hits    : {len(hits):,} -> {hits_path}")
-    print(f"  contigs : {len(summaries):,} with hits -> {verdicts_path}")
+    print(f"  hits    : {len(hits):,} -> {hits_path.name}")
+    print(f"  contigs : {len(summaries):,} with hits -> {verdicts_path.name}")
 
 
 def main() -> None:
@@ -224,7 +238,6 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if len(fasta_files) == 1:
-        # Single file: write outputs directly into output_dir
         print(f"Processing: {fasta_files[0].name}")
         _process_one(
             input_path=fasta_files[0],
@@ -236,21 +249,12 @@ def main() -> None:
             verbose=args.verbose,
         )
     else:
-        # Multiple files: write outputs into output_dir/<stem>/
         print(f"Found {len(fasta_files)} FASTA files in {input_path}")
         for i, fasta in enumerate(fasta_files, 1):
-            # Strip all suffixes to get a clean stem (e.g. sample.fasta.gz -> sample)
-            stem = fasta.name
-            for s in _FASTA_SUFFIXES:
-                if stem.endswith(s):
-                    stem = stem[: -len(s)]
-                    break
-            file_out = output_dir / stem
-            file_out.mkdir(parents=True, exist_ok=True)
             print(f"[{i}/{len(fasta_files)}] {fasta.name}")
             _process_one(
                 input_path=fasta,
-                output_dir=file_out,
+                output_dir=output_dir,
                 catalog_dir=catalog_dir,
                 min_identity=args.min_identity,
                 min_coverage=args.min_coverage,
