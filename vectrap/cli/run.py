@@ -32,18 +32,12 @@ _FASTA_SUFFIXES = (".fasta", ".fa", ".fna", ".fasta.gz", ".fa.gz", ".fna.gz")
 
 
 def _collect_inputs(path: Path) -> list[Path]:
-    """Return a list of FASTA files to process.
-
-    If *path* is a file, return ``[path]``.
-    If *path* is a directory, return all FASTA files found in it (non-recursive).
-    """
+    """Return a list of FASTA files to process."""
     if not path.exists():
         print(f"ERROR: input path not found: {path}", file=sys.stderr)
         sys.exit(1)
-
     if path.is_file():
         return [path]
-
     if path.is_dir():
         files = [
             f for f in sorted(path.iterdir())
@@ -57,7 +51,6 @@ def _collect_inputs(path: Path) -> list[Path]:
             )
             sys.exit(1)
         return files
-
     print(f"ERROR: input is neither a file nor a directory: {path}", file=sys.stderr)
     sys.exit(1)
 
@@ -72,7 +65,6 @@ def _sample_stem(fasta_path: Path) -> str:
 
 
 def _get_contig_lengths(fasta_path: Path) -> dict[str, int]:
-    """Return a dict mapping contig name -> sequence length."""
     return {header.split()[0]: len(seq) for header, seq in read_fasta(fasta_path)}
 
 
@@ -148,6 +140,7 @@ def _process_one(
     min_coverage: float,
     threads: int,
     verbose: bool,
+    label: str = "",
 ) -> None:
     """Run the full pipeline on a single FASTA file."""
     sample = _sample_stem(input_path)
@@ -162,12 +155,12 @@ def _process_one(
         verbose=verbose,
     )
 
-    hits_path     = _write_hits_tsv(hits, output_dir, sample)
-    summaries     = summarize(hits, contig_lengths)
-    verdicts_path = _write_verdicts_tsv(summaries, output_dir, sample)
+    _write_hits_tsv(hits, output_dir, sample)
+    summaries = summarize(hits, contig_lengths)
+    _write_verdicts_tsv(summaries, output_dir, sample)
 
-    print(f"  hits    : {len(hits):,} -> {hits_path.name}")
-    print(f"  contigs : {len(summaries):,} with hits -> {verdicts_path.name}")
+    prefix = f"{label} " if label else ""
+    print(f"{prefix}{sample}  hits={len(hits):,}  contigs_with_hits={len(summaries):,}")
 
 
 def main() -> None:
@@ -175,59 +168,24 @@ def main() -> None:
         prog="vectrap",
         description="Detect and classify synthetic vector contamination in genome assemblies.",
     )
-    parser.add_argument(
-        "-i", "--input",
-        required=True,
-        metavar="FASTA|DIR",
-        help="Input FASTA file or directory of FASTA files.",
-    )
-    parser.add_argument(
-        "-o", "--output",
-        required=True,
-        metavar="DIR",
-        help="Output directory. Created if it does not exist.",
-    )
-    parser.add_argument(
-        "-c", "--catalog-dir",
-        metavar="DIR",
-        default=str(_DEFAULT_CATALOG_DIR),
-        help=(
-            "Path to the catalog directory containing indexes built by "
-            "vectrap-build-db. Defaults to the bundled catalog directory "
-            f"({_DEFAULT_CATALOG_DIR})."
-        ),
-    )
-    parser.add_argument(
-        "--min-identity",
-        type=float,
-        default=0.90,
-        metavar="FLOAT",
-        help="Minimum sequence identity for mappy hits (default: 0.90).",
-    )
-    parser.add_argument(
-        "--min-coverage",
-        type=float,
-        default=0.80,
-        metavar="FLOAT",
-        help="Minimum fraction of catalog sequence covered by a hit (default: 0.80).",
-    )
-    parser.add_argument(
-        "-t", "--threads",
-        type=int,
-        default=4,
-        metavar="INT",
-        help="Number of threads for mappy aligner (default: 4).",
-    )
-    parser.add_argument(
-        "-v", "--verbose",
-        action="store_true",
-        help="Print progress messages to stderr.",
-    )
-    parser.add_argument(
-        "--version",
-        action="version",
-        version="%(prog)s 0.1.0",
-    )
+    parser.add_argument("-i", "--input", required=True, metavar="FASTA|DIR",
+                        help="Input FASTA file or directory of FASTA files.")
+    parser.add_argument("-o", "--output", required=True, metavar="DIR",
+                        help="Output directory. Created if it does not exist.")
+    parser.add_argument("-c", "--catalog-dir", metavar="DIR",
+                        default=str(_DEFAULT_CATALOG_DIR),
+                        help=("Path to the catalog directory containing indexes built by "
+                              "vectrap-build-db. Defaults to the bundled catalog directory "
+                              f"({_DEFAULT_CATALOG_DIR})."))
+    parser.add_argument("--min-identity", type=float, default=0.90, metavar="FLOAT",
+                        help="Minimum sequence identity for mappy hits (default: 0.90).")
+    parser.add_argument("--min-coverage", type=float, default=0.80, metavar="FLOAT",
+                        help="Minimum fraction of catalog sequence covered by a hit (default: 0.80).")
+    parser.add_argument("-t", "--threads", type=int, default=4, metavar="INT",
+                        help="Number of threads for mappy aligner (default: 4).")
+    parser.add_argument("-v", "--verbose", action="store_true",
+                        help="Print detailed progress messages to stderr.")
+    parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")
     args = parser.parse_args()
 
     input_path  = Path(args.input).resolve()
@@ -237,30 +195,22 @@ def main() -> None:
     fasta_files = _collect_inputs(input_path)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    if len(fasta_files) == 1:
-        print(f"Processing: {fasta_files[0].name}")
+    n = len(fasta_files)
+    if n > 1:
+        print(f"Found {n} FASTA files in {input_path}")
+
+    for i, fasta in enumerate(fasta_files, 1):
+        label = f"[{i}/{n}]" if n > 1 else ""
         _process_one(
-            input_path=fasta_files[0],
+            input_path=fasta,
             output_dir=output_dir,
             catalog_dir=catalog_dir,
             min_identity=args.min_identity,
             min_coverage=args.min_coverage,
             threads=args.threads,
             verbose=args.verbose,
+            label=label,
         )
-    else:
-        print(f"Found {len(fasta_files)} FASTA files in {input_path}")
-        for i, fasta in enumerate(fasta_files, 1):
-            print(f"[{i}/{len(fasta_files)}] {fasta.name}")
-            _process_one(
-                input_path=fasta,
-                output_dir=output_dir,
-                catalog_dir=catalog_dir,
-                min_identity=args.min_identity,
-                min_coverage=args.min_coverage,
-                threads=args.threads,
-                verbose=args.verbose,
-            )
 
     print("Done.")
 
