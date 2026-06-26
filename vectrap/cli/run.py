@@ -4,7 +4,11 @@ Installed as the `vectrap` command via pyproject.toml entry point.
 
 Usage
 -----
-    vectrap -i assembly.fasta -o results/ -c /path/to/catalogs/
+    # Single file
+    vectrap -i assembly.fasta -o results/
+
+    # Directory of FASTA files
+    vectrap -i genomes/ -o results/
 """
 
 import argparse
@@ -17,21 +21,49 @@ from vectrap.modules.scorer import summarize
 from vectrap.modules.utils import read_fasta
 
 
-# Default catalog directory bundled inside the package (populated by
-# vectrap-build-db --download).
 _DEFAULT_CATALOG_DIR = Path(__file__).resolve().parents[2] / "vectrap" / "catalogs"
+
+_FASTA_SUFFIXES = (".fasta", ".fa", ".fna", ".fasta.gz", ".fa.gz", ".fna.gz")
+
+
+def _collect_inputs(path: Path) -> list[Path]:
+    """Return a list of FASTA files to process.
+
+    If *path* is a file, return ``[path]``.
+    If *path* is a directory, return all FASTA files found in it (non-recursive).
+    Raises SystemExit if the path does not exist or no FASTA files are found.
+    """
+    if not path.exists():
+        print(f"ERROR: input path not found: {path}", file=sys.stderr)
+        sys.exit(1)
+
+    if path.is_file():
+        return [path]
+
+    if path.is_dir():
+        files = [
+            f for f in sorted(path.iterdir())
+            if f.is_file() and any(str(f).endswith(s) for s in _FASTA_SUFFIXES)
+        ]
+        if not files:
+            print(
+                f"ERROR: no FASTA files found in {path}\n"
+                f"  Expected extensions: {', '.join(_FASTA_SUFFIXES)}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        return files
+
+    print(f"ERROR: input is neither a file nor a directory: {path}", file=sys.stderr)
+    sys.exit(1)
 
 
 def _get_contig_lengths(fasta_path: Path) -> dict[str, int]:
     """Return a dict mapping contig name -> sequence length."""
-    lengths = {}
-    for header, seq in read_fasta(fasta_path):
-        lengths[header.split()[0]] = len(seq)
-    return lengths
+    return {header.split()[0]: len(seq) for header, seq in read_fasta(fasta_path)}
 
 
 def _write_hits_tsv(hits, output_dir: Path) -> Path:
-    """Write all hits to vectrap_hits.tsv and return the path."""
     out_path = output_dir / "vectrap_hits.tsv"
     fieldnames = [
         "contig", "start", "end", "strand", "length",
@@ -62,23 +94,13 @@ def _write_hits_tsv(hits, output_dir: Path) -> Path:
 
 
 def _write_verdicts_tsv(summaries, output_dir: Path) -> Path:
-    """Write per-contig hit summaries to vectrap_verdicts.tsv and return the path."""
     out_path = output_dir / "vectrap_verdicts.tsv"
     fieldnames = [
-        "contig",
-        "contig_length",
-        "total_hits",
-        "engineered_hits",
-        "context_dependent_hits",
-        "weak_hits",
-        "unannotated_hits",
-        "unique_feature_types",
-        "unique_labels",
-        "covered_bp",
-        "covered_fraction",
-        "top_label",
-        "top_tier",
-        "top_confidence",
+        "contig", "contig_length", "total_hits",
+        "engineered_hits", "context_dependent_hits", "weak_hits", "unannotated_hits",
+        "unique_feature_types", "unique_labels",
+        "covered_bp", "covered_fraction",
+        "top_label", "top_tier", "top_confidence",
         "evidence_summary",
     ]
     with open(out_path, "w", newline="") as fh:
@@ -105,6 +127,35 @@ def _write_verdicts_tsv(summaries, output_dir: Path) -> Path:
     return out_path
 
 
+def _process_one(
+    input_path: Path,
+    output_dir: Path,
+    catalog_dir: Path,
+    min_identity: float,
+    min_coverage: float,
+    threads: int,
+    verbose: bool,
+) -> None:
+    """Run the full pipeline on a single FASTA file."""
+    contig_lengths = _get_contig_lengths(input_path)
+
+    hits = scan(
+        query_fasta=input_path,
+        catalog_dir=catalog_dir,
+        min_identity=min_identity,
+        min_coverage=min_coverage,
+        threads=threads,
+        verbose=verbose,
+    )
+
+    hits_path     = _write_hits_tsv(hits, output_dir)
+    summaries     = summarize(hits, contig_lengths)
+    verdicts_path = _write_verdicts_tsv(summaries, output_dir)
+
+    print(f"  hits    : {len(hits):,} -> {hits_path}")
+    print(f"  contigs : {len(summaries):,} with hits -> {verdicts_path}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="vectrap",
@@ -113,8 +164,8 @@ def main() -> None:
     parser.add_argument(
         "-i", "--input",
         required=True,
-        metavar="FASTA",
-        help="Input assembly FASTA file (plain or gzipped).",
+        metavar="FASTA|DIR",
+        help="Input FASTA file or directory of FASTA files.",
     )
     parser.add_argument(
         "-o", "--output",
@@ -169,30 +220,44 @@ def main() -> None:
     output_dir  = Path(args.output).resolve()
     catalog_dir = Path(args.catalog_dir).resolve()
 
-    if not input_path.exists():
-        print(f"ERROR: input file not found: {input_path}", file=sys.stderr)
-        sys.exit(1)
-
+    fasta_files = _collect_inputs(input_path)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Read contig lengths before scanning (single FASTA pass)
-    contig_lengths = _get_contig_lengths(input_path)
+    if len(fasta_files) == 1:
+        # Single file: write outputs directly into output_dir
+        print(f"Processing: {fasta_files[0].name}")
+        _process_one(
+            input_path=fasta_files[0],
+            output_dir=output_dir,
+            catalog_dir=catalog_dir,
+            min_identity=args.min_identity,
+            min_coverage=args.min_coverage,
+            threads=args.threads,
+            verbose=args.verbose,
+        )
+    else:
+        # Multiple files: write outputs into output_dir/<stem>/
+        print(f"Found {len(fasta_files)} FASTA files in {input_path}")
+        for i, fasta in enumerate(fasta_files, 1):
+            # Strip all suffixes to get a clean stem (e.g. sample.fasta.gz -> sample)
+            stem = fasta.name
+            for s in _FASTA_SUFFIXES:
+                if stem.endswith(s):
+                    stem = stem[: -len(s)]
+                    break
+            file_out = output_dir / stem
+            file_out.mkdir(parents=True, exist_ok=True)
+            print(f"[{i}/{len(fasta_files)}] {fasta.name}")
+            _process_one(
+                input_path=fasta,
+                output_dir=file_out,
+                catalog_dir=catalog_dir,
+                min_identity=args.min_identity,
+                min_coverage=args.min_coverage,
+                threads=args.threads,
+                verbose=args.verbose,
+            )
 
-    hits = scan(
-        query_fasta=input_path,
-        catalog_dir=catalog_dir,
-        min_identity=args.min_identity,
-        min_coverage=args.min_coverage,
-        threads=args.threads,
-        verbose=args.verbose,
-    )
-
-    hits_path = _write_hits_tsv(hits, output_dir)
-    print(f"  hits    : {len(hits):,} written to {hits_path}")
-
-    summaries = summarize(hits, contig_lengths)
-    verdicts_path = _write_verdicts_tsv(summaries, output_dir)
-    print(f"  contigs : {len(summaries):,} with hits written to {verdicts_path}")
     print("Done.")
 
 
