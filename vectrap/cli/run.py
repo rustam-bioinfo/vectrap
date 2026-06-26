@@ -21,6 +21,7 @@ import argparse
 import csv
 import sys
 import time
+import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -81,6 +82,14 @@ def _sample_stem(fasta_path: Path) -> str:
 
 def _get_contig_lengths(fasta_path: Path) -> dict[str, int]:
     return {header.split()[0]: len(seq) for header, seq in read_fasta(fasta_path)}
+
+
+def _cleanup_partial(output_dir: Path, sample: str) -> None:
+    """Remove incomplete output files left by a failed sample."""
+    for name in (f"{sample}_hits.tsv", f"{sample}_contig_verdicts.tsv"):
+        p = output_dir / name
+        if p.exists():
+            p.unlink()
 
 
 def _write_hits_tsv(hits, output_dir: Path, sample: str) -> Path:
@@ -147,6 +156,16 @@ def _write_verdicts_tsv(summaries, output_dir: Path, sample: str) -> Path:
     return out_path
 
 
+def _error_row(sample: str, error_msg: str) -> dict:
+    """Return a summary row placeholder for a failed sample."""
+    from vectrap.modules.reporter import _SUMMARY_FIELDS
+    row = {f: "" for f in _SUMMARY_FIELDS}
+    row["sample"]         = sample
+    row["sample_verdict"] = "ERROR"
+    row["top_labels"]     = error_msg[:120]
+    return row
+
+
 def _process_one(
     input_path: Path,
     output_dir: Path,
@@ -161,44 +180,61 @@ def _process_one(
     min_context_suspected: int,
     label: str = "",
 ) -> dict:
-    """Run the full pipeline on a single FASTA file. Returns summary row dict."""
+    """Run the full pipeline on a single FASTA file.
+
+    Returns a summary row dict. On failure, prints a warning, cleans up
+    partial output files, and returns an ERROR row so the rest of the
+    batch continues uninterrupted.
+    """
     sample = _sample_stem(input_path)
     t0 = time.time()
-
-    contig_lengths = _get_contig_lengths(input_path)
-
-    hits = scan(
-        query_fasta=input_path,
-        catalog_dir=catalog_dir,
-        min_identity=min_identity,
-        min_coverage=min_coverage,
-        min_len=min_len,
-        best_n=best_n,
-        threads=threads,
-        verbose=verbose,
-    )
-
-    _write_hits_tsv(hits, output_dir, sample)
-    summaries = summarize(hits, contig_lengths)
-    _write_verdicts_tsv(summaries, output_dir, sample)
-
-    row = build_sample_row(
-        sample=sample,
-        hits=hits,
-        summaries=summaries,
-        contig_lengths=contig_lengths,
-        min_engineered_contamination=min_engineered_contamination,
-        min_context_suspected=min_context_suspected,
-    )
-
     prefix = f"{label} " if label else ""
-    print(
-        f"{_ts()} {prefix}{sample}  "
-        f"hits={len(hits):,}  contigs_with_hits={len(summaries):,}  "
-        f"verdict={row['sample_verdict']}  "
-        f"elapsed={_elapsed(t0)}"
-    )
-    return row
+
+    try:
+        contig_lengths = _get_contig_lengths(input_path)
+
+        hits = scan(
+            query_fasta=input_path,
+            catalog_dir=catalog_dir,
+            min_identity=min_identity,
+            min_coverage=min_coverage,
+            min_len=min_len,
+            best_n=best_n,
+            threads=threads,
+            verbose=verbose,
+        )
+
+        _write_hits_tsv(hits, output_dir, sample)
+        summaries = summarize(hits, contig_lengths)
+        _write_verdicts_tsv(summaries, output_dir, sample)
+
+        row = build_sample_row(
+            sample=sample,
+            hits=hits,
+            summaries=summaries,
+            contig_lengths=contig_lengths,
+            min_engineered_contamination=min_engineered_contamination,
+            min_context_suspected=min_context_suspected,
+        )
+
+        print(
+            f"{_ts()} {prefix}{sample}  "
+            f"hits={len(hits):,}  contigs_with_hits={len(summaries):,}  "
+            f"verdict={row['sample_verdict']}  "
+            f"elapsed={_elapsed(t0)}"
+        )
+        return row
+
+    except Exception as exc:
+        _cleanup_partial(output_dir, sample)
+        short_msg = f"{type(exc).__name__}: {exc}"
+        print(
+            f"{_ts()} {prefix}{sample}  ERROR ({short_msg})  elapsed={_elapsed(t0)}",
+            file=sys.stderr,
+        )
+        if verbose:
+            traceback.print_exc(file=sys.stderr)
+        return _error_row(sample, short_msg)
 
 
 def main() -> None:
@@ -235,7 +271,7 @@ def main() -> None:
     parser.add_argument("-t", "--threads", type=int, default=4, metavar="INT",
                         help="Number of threads for mappy aligner (default: 4).")
     parser.add_argument("-v", "--verbose", action="store_true",
-                        help="Print detailed per-stage progress messages to stderr.")
+                        help="Print detailed per-stage progress and full tracebacks to stderr.")
     parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")
     args = parser.parse_args()
 
@@ -270,7 +306,10 @@ def main() -> None:
         summary_rows.append(row)
 
     summary_path = write_summary(summary_rows, output_dir)
+    failed = sum(1 for r in summary_rows if r["sample_verdict"] == "ERROR")
     print(f"{_ts()} Summary written to {summary_path.name}")
+    if failed:
+        print(f"{_ts()} WARNING: {failed}/{n} sample(s) failed — see ERROR rows in summary.")
     print(f"{_ts()} Done.")
 
 
