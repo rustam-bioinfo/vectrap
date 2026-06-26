@@ -23,22 +23,30 @@ _DEFAULT_CATALOG_DIR = Path(__file__).resolve().parents[2] / "vectrap" / "catalo
 def _write_tsv(hits, output_dir: Path) -> Path:
     """Write hits to a TSV file and return the path."""
     out_path = output_dir / "vectrap_hits.tsv"
-    fieldnames = ["contig", "start", "end", "strand", "length",
-                  "identity", "coverage", "catalog_id", "source"]
+    fieldnames = [
+        "contig", "start", "end", "strand", "length",
+        "identity", "coverage", "catalog_id", "source",
+        "feature_type", "label", "tier", "confidence", "reasoning",
+    ]
     with open(out_path, "w", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=fieldnames, delimiter="\t")
         writer.writeheader()
         for h in hits:
             writer.writerow({
-                "contig":     h.contig,
-                "start":      h.start,
-                "end":        h.end,
-                "strand":     h.strand,
-                "length":     h.length,
-                "identity":   f"{h.identity:.4f}",
-                "coverage":   f"{h.coverage:.4f}",
-                "catalog_id": h.catalog_id,
-                "source":     h.source,
+                "contig":       h.contig,
+                "start":        h.start,
+                "end":          h.end,
+                "strand":       h.strand,
+                "length":       h.length,
+                "identity":     f"{h.identity:.4f}",
+                "coverage":     f"{h.coverage:.4f}",
+                "catalog_id":   h.catalog_id,
+                "source":       h.source,
+                "feature_type": h.feature_type,
+                "label":        h.label,
+                "tier":         h.tier,
+                "confidence":   h.confidence,
+                "reasoning":    h.reasoning,
             })
     return out_path
 

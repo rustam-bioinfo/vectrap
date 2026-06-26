@@ -12,9 +12,10 @@ Usage
 
 Outputs (written to the catalog directory)
 ------------------------------------------
-    combined_long.fasta   sequences >= MIN_LEN bp
-    combined_long.mmi     mappy/minimap2 index
-    short_index.pkl       exact k-mer hash {seq: [id, ...]}
+    combined_long.fasta     sequences >= MIN_LEN bp
+    combined_long.mmi       mappy/minimap2 index
+    short_index.pkl         exact k-mer hash {seq: [id, ...]}
+    catalog_metadata.pkl    {catalog_id: {feature_type, label, tier, confidence, reasoning}}
 """
 
 import argparse
@@ -49,6 +50,7 @@ CATALOG_FILES = [
     "catalog_rep_origin.fasta.gz",
     "catalog_terminator.fasta.gz",
     "catalog_manifest.tsv",
+    "catalog_metadata.tsv",
 ]
 
 MIN_LEN = 50  # bp threshold between mappy aligner and k-mer hash
@@ -101,15 +103,7 @@ def verify_manifest(catalog_dir: Path) -> None:
 
 
 def _build_mmi(long_fasta: Path, mmi_path: Path) -> None:
-    """Build a minimap2 .mmi index from *long_fasta*.
-
-    Strategy
-    --------
-    1. Try ``mappy.Aligner`` with ``fn_idx_out`` -- available in mappy >= 2.28.
-    2. Fall back to the ``minimap2`` binary if it is on PATH.
-    3. Raise an informative error if neither works.
-    """
-    # Attempt 1: mappy.Aligner with fn_idx_out (mappy >= 2.28)
+    """Build a minimap2 .mmi index from *long_fasta*."""
     try:
         aligner = mappy.Aligner(
             fn_idx_in=str(long_fasta),
@@ -118,11 +112,10 @@ def _build_mmi(long_fasta: Path, mmi_path: Path) -> None:
             best_n=10,
         )
         if aligner:
-            return  # index written as a side-effect of construction
+            return
     except TypeError:
-        pass  # older mappy doesn't accept fn_idx_out
+        pass
 
-    # Attempt 2: minimap2 binary
     mm2 = shutil.which("minimap2")
     if mm2:
         result = subprocess.run(
@@ -139,6 +132,52 @@ def _build_mmi(long_fasta: Path, mmi_path: Path) -> None:
         "Install minimap2 (conda install -c bioconda minimap2) or upgrade mappy "
         "(pip install 'mappy>=2.28')."
     )
+
+
+def build_metadata_pkl(catalog_dir: Path) -> None:
+    """Build catalog_metadata.pkl from catalog_metadata.tsv.
+
+    The TSV must have columns: catalog_id, feature_type, label, tier,
+    confidence, reasoning.
+
+    The resulting pickle is a dict:
+        {catalog_id: {feature_type, label, tier, confidence, reasoning}}
+    """
+    tsv_path = catalog_dir / "catalog_metadata.tsv"
+    if not tsv_path.exists():
+        print(
+            f"WARNING: catalog_metadata.tsv not found in {catalog_dir}.\n"
+            "  Skipping metadata pickle build. Hits will lack tier/confidence/reasoning."
+        )
+        return
+
+    import csv
+    metadata: dict = {}
+    with open(tsv_path, newline="") as fh:
+        reader = csv.DictReader(fh, delimiter="\t")
+        required = {"catalog_id", "feature_type", "label", "tier", "confidence", "reasoning"}
+        missing = required - set(reader.fieldnames or [])
+        if missing:
+            raise ValueError(
+                f"catalog_metadata.tsv is missing required columns: {missing}\n"
+                "Expected columns: catalog_id, feature_type, label, tier, confidence, reasoning"
+            )
+        for row in reader:
+            cid = row["catalog_id"]
+            if not cid:
+                continue
+            metadata[cid] = {
+                "feature_type": row["feature_type"],
+                "label":        row["label"],
+                "tier":         row["tier"],
+                "confidence":   row["confidence"],
+                "reasoning":    row["reasoning"],
+            }
+
+    pkl_path = catalog_dir / "catalog_metadata.pkl"
+    with open(pkl_path, "wb") as fh:
+        pickle.dump(metadata, fh, protocol=pickle.HIGHEST_PROTOCOL)
+    print(f"  wrote {pkl_path} ({len(metadata):,} entries)")
 
 
 def build_indexes(catalog_dir: Path) -> None:
@@ -161,22 +200,22 @@ def build_indexes(catalog_dir: Path) -> None:
     print(f"  long sequences (>= {MIN_LEN} bp): {len(long_records):,}")
     print(f"  short sequences (<  {MIN_LEN} bp): {len(short_index):,} unique")
 
-    # Write combined long FASTA
     long_fasta = catalog_dir / "combined_long.fasta"
     write_fasta(long_records, long_fasta)
     print(f"  wrote {long_fasta}")
 
-    # Build .mmi index
     mmi_path = catalog_dir / "combined_long.mmi"
     print("  building mappy index ...")
     _build_mmi(long_fasta, mmi_path)
     print(f"  wrote {mmi_path}")
 
-    # Write k-mer hash for short sequences
     pkl_path = catalog_dir / "short_index.pkl"
     with open(pkl_path, "wb") as fh:
         pickle.dump(short_index, fh, protocol=pickle.HIGHEST_PROTOCOL)
     print(f"  wrote {pkl_path}")
+
+    print("  building metadata pickle ...")
+    build_metadata_pkl(catalog_dir)
 
 
 def main() -> None:

@@ -16,7 +16,7 @@ against the query assembly:
    typically 100-1000x faster for the catalog sizes used in VecTrap.
 
 All hits from both strategies are returned as a flat list of ``HomologyHit``
-objects for downstream scoring.
+objects, enriched with tier/confidence/reasoning from the catalog metadata.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 import ahocorasick
 import mappy
@@ -86,6 +86,16 @@ class HomologyHit:
         Identifier of the matching catalog entry.
     source : str
         ``'mappy'`` or ``'kmer'`` -- indicates which scanner produced the hit.
+    feature_type : str
+        Feature type from the catalog metadata (e.g. 'CDS', 'promoter').
+    label : str
+        Human-readable feature name from the catalog metadata.
+    tier : str
+        Evidence tier: 'ENGINEERED', 'CONTEXT_DEPENDENT', or 'WEAK'.
+    confidence : str
+        Confidence level: 'HIGH', 'MEDIUM', or 'LOW'.
+    reasoning : str
+        One-sentence explanation of the tier assignment.
     """
 
     contig: str
@@ -96,6 +106,11 @@ class HomologyHit:
     coverage: float
     catalog_id: str
     source: str = field(default="mappy")
+    feature_type: str = field(default="")
+    label: str = field(default="")
+    tier: str = field(default="")
+    confidence: str = field(default="")
+    reasoning: str = field(default="")
 
     @property
     def length(self) -> int:
@@ -106,8 +121,33 @@ class HomologyHit:
         return (
             f"HomologyHit({self.contig!r}, {self.start}-{self.end} "
             f"{self.strand}, id={self.identity:.3f}, cov={self.coverage:.3f}, "
-            f"cat={self.catalog_id!r}, src={self.source!r})"
+            f"cat={self.catalog_id!r}, tier={self.tier!r}, src={self.source!r})"
         )
+
+
+# ---------------------------------------------------------------------------
+# Catalog metadata loader
+# ---------------------------------------------------------------------------
+
+def _load_metadata(catalog_dir: Path) -> Dict[str, dict]:
+    """Load the catalog metadata pickle and return a dict keyed by catalog_id.
+
+    The pickle is built by ``vectrap-build-db`` from ``catalog_metadata.tsv``.
+    Each value is a dict with keys: feature_type, label, tier, confidence, reasoning.
+
+    If the pickle is missing, an empty dict is returned and a warning is printed
+    so that scanning still works but hits will have empty annotation fields.
+    """
+    pkl_path = catalog_dir / "catalog_metadata.pkl"
+    if not pkl_path.exists():
+        print(
+            f"[vectrap] WARNING: catalog_metadata.pkl not found in {catalog_dir}.\n"
+            "  Run 'vectrap-build-db' to build it. Hits will lack tier/confidence/reasoning.",
+            file=sys.stderr,
+        )
+        return {}
+    with open(pkl_path, "rb") as fh:
+        return pickle.load(fh)
 
 
 # ---------------------------------------------------------------------------
@@ -175,76 +215,6 @@ def _run_mappy(
 # Aho-Corasick k-mer scanner (short sequences)
 # ---------------------------------------------------------------------------
 
-def _build_automaton(short_index: dict) -> ahocorasick.Automaton:
-    """Build an Aho-Corasick automaton from *short_index*.
-
-    Each pattern is stored with its list of catalog IDs as the payload.
-    Both the forward k-mer and (where non-palindromic) its reverse complement
-    are added so a single forward-strand scan catches both orientations.
-
-    The payload for each pattern is a list of (catalog_id, strand) tuples
-    where strand is '+' for the original k-mer and '-' for the RC.
-    """
-    A = ahocorasick.Automaton()
-    for kmer, catalog_ids in short_index.items():
-        # Forward pattern
-        fwd_payload = [(cid, "+") for cid in catalog_ids]
-        if kmer in A:
-            A.get(kmer).extend(fwd_payload)
-        else:
-            A.add_word(kmer, list(fwd_payload))
-
-        # Reverse-complement pattern (skip palindromes)
-        rc = rev_comp(kmer)
-        if rc == kmer:
-            continue
-        rc_payload = [(cid, "-") for cid in catalog_ids]
-        if rc in A:
-            A.get(rc).extend(rc_payload)
-        else:
-            A.add_word(rc, list(rc_payload))
-
-    A.make_automaton()
-    return A
-
-
-def _ac_scan_sequence(
-    contig_name: str,
-    contig_seq: str,
-    automaton: ahocorasick.Automaton,
-) -> List[HomologyHit]:
-    """Scan *contig_seq* with the Aho-Corasick automaton in a single O(n) pass.
-
-    The automaton contains both forward k-mers and their reverse complements,
-    so one pass over the forward strand is sufficient.
-
-    For a match ending at position ``end_idx`` (0-based, inclusive as returned
-    by ahocorasick):
-      - Forward hit  (strand='+'):  start = end_idx - klen + 1,  end = end_idx + 1
-      - RC hit       (strand='-'):  the RC pattern matched at [start, end) on the
-        forward strand, meaning the *original* k-mer is on the minus strand at the
-        same coordinates.  We report the forward-strand coordinates of the RC match
-        directly (start=end_idx-klen+1, end=end_idx+1) with strand='-'.
-    """
-    hits: List[HomologyHit] = []
-    seq_len = len(contig_seq)
-
-    for end_idx, payload in automaton.iter(contig_seq):
-        # payload is a list of (catalog_id, strand) tuples
-        # ahocorasick returns end_idx as the index of the LAST character of the match
-        for catalog_id, strand in payload:
-            # infer klen from the matched pattern length
-            # ahocorasick doesn't expose pattern length directly but we can get it
-            # from the payload key length -- instead, use end_idx and a sentinel
-            # approach: we stored klen in the payload during build.
-            # WORKAROUND: we don't have klen here; rebuild with klen in payload.
-            pass
-
-    # The above approach requires klen in the payload.  Rebuild is done in
-    # _build_automaton_with_klen below -- this function is superseded.
-    return hits
-
-
 def _build_automaton_with_klen(short_index: dict) -> ahocorasick.Automaton:
     """Build an Aho-Corasick automaton where each payload includes the k-mer length.
 
@@ -277,23 +247,7 @@ def _kmer_scan_sequence(
     contig_seq: str,
     automaton: ahocorasick.Automaton,
 ) -> List[HomologyHit]:
-    """Scan *contig_seq* with the Aho-Corasick automaton in a single O(n) pass.
-
-    Parameters
-    ----------
-    contig_name : str
-        FASTA header of the contig (first token).
-    contig_seq : str
-        Nucleotide sequence (upper-case).
-    automaton : ahocorasick.Automaton
-        Built by ``_build_automaton_with_klen``.  Payload per entry is a list
-        of ``(catalog_id, strand, klen)`` tuples.
-
-    Returns
-    -------
-    list[HomologyHit]
-        All exact matches with ``identity=1.0``, ``coverage=1.0``.
-    """
+    """Scan *contig_seq* with the Aho-Corasick automaton in a single O(n) pass."""
     hits: List[HomologyHit] = []
     for end_idx, payload in automaton.iter(contig_seq):
         for catalog_id, strand, klen in payload:
@@ -317,23 +271,7 @@ def _run_kmer_scanner(
     pkl_path: Path,
     log=None,
 ) -> List[HomologyHit]:
-    """Load the short-sequence k-mer index, build an Aho-Corasick automaton,
-    and scan all contigs in *query_fasta* in a single pass per contig.
-
-    Parameters
-    ----------
-    query_fasta : Path
-        Input assembly FASTA (plain or gzipped).
-    pkl_path : Path
-        Path to the ``short_index.pkl`` file built by ``vectrap-build-db``.
-    log : callable or None
-        Optional logging function.
-
-    Returns
-    -------
-    list[HomologyHit]
-        All exact k-mer matches.
-    """
+    """Load the short-sequence k-mer index and scan all contigs."""
     if log is None:
         log = lambda _: None
 
@@ -374,9 +312,9 @@ def scan(
 ) -> List[HomologyHit]:
     """Scan *query_fasta* against the VecTrap catalog and return all hits.
 
-    This function runs both the mappy aligner (long sequences) and the exact
-    k-mer hash scanner (short sequences) and returns their combined output as
-    a flat list of ``HomologyHit`` objects.
+    Runs the mappy aligner (long sequences) and exact k-mer hash scanner
+    (short sequences), then enriches every hit with tier, confidence, and
+    reasoning from the catalog metadata.
 
     Parameters
     ----------
@@ -384,13 +322,12 @@ def scan(
         Input assembly FASTA file (plain or gzipped).
     catalog_dir : str or Path
         Directory containing the indexes built by ``vectrap-build-db``:
-        ``combined_long.mmi`` and ``short_index.pkl``.
+        ``combined_long.mmi``, ``short_index.pkl``, and
+        ``catalog_metadata.pkl``.
     min_identity : float, optional
         Minimum per-base sequence identity for mappy hits (default: 0.90).
-        Exact k-mer hits always have identity 1.0 regardless of this setting.
     min_coverage : float, optional
-        Minimum fraction of the catalog sequence that must be covered by a hit
-        (default: 0.80). Exact k-mer hits always have coverage 1.0.
+        Minimum fraction of the catalog sequence covered by a hit (default: 0.80).
     threads : int, optional
         Number of threads passed to mappy (default: 4).
     verbose : bool, optional
@@ -399,15 +336,8 @@ def scan(
     Returns
     -------
     list[HomologyHit]
-        All hits passing the identity and coverage thresholds, from both
-        scanners combined.
-
-    Raises
-    ------
-    FileNotFoundError
-        If the catalog index files are missing.
-    RuntimeError
-        If the mappy index cannot be loaded.
+        All hits passing the identity and coverage thresholds, enriched with
+        feature_type, label, tier, confidence, and reasoning.
     """
     query_fasta = Path(query_fasta)
     catalog_dir = Path(catalog_dir)
@@ -439,7 +369,7 @@ def scan(
     _log(f"threads          : {threads}")
 
     # --- mappy aligner ---
-    _log("─" * 48)
+    _log("\u2500" * 48)
     _log("stage 1/2  mappy aligner (long sequences)")
     t0 = time.time()
     mappy_hits = _run_mappy(
@@ -454,7 +384,7 @@ def scan(
     _log(f"    elapsed        : {_elapsed(t0)}")
 
     # --- k-mer scanner ---
-    _log("─" * 48)
+    _log("\u2500" * 48)
     _log("stage 2/2  k-mer scanner (short sequences)")
     t0 = time.time()
     kmer_hits = _run_kmer_scanner(
@@ -465,9 +395,30 @@ def scan(
     _log(f"    hits           : {len(kmer_hits):,}")
     _log(f"    elapsed        : {_elapsed(t0)}")
 
-    # --- summary ---
     all_hits = mappy_hits + kmer_hits
-    _log("─" * 48)
+
+    # --- enrich hits with catalog metadata ---
+    _log("\u2500" * 48)
+    _log("stage 3/3  enriching hits with catalog metadata")
+    t0 = time.time()
+    metadata = _load_metadata(catalog_dir)
+    unannotated = 0
+    for hit in all_hits:
+        m = metadata.get(hit.catalog_id)
+        if m is None:
+            unannotated += 1
+            continue
+        hit.feature_type = m.get("feature_type", "")
+        hit.label        = m.get("label", "")
+        hit.tier         = m.get("tier", "")
+        hit.confidence   = m.get("confidence", "")
+        hit.reasoning    = m.get("reasoning", "")
+    if unannotated:
+        _log(f"    WARNING: {unannotated:,} hit(s) had no metadata entry")
+    _log(f"    elapsed        : {_elapsed(t0)}")
+
+    # --- summary ---
+    _log("\u2500" * 48)
     _log(f"total hits        : {len(all_hits):,}")
     _log(f"total elapsed     : {_elapsed(t_total)}")
 
