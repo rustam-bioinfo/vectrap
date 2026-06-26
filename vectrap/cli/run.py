@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 from vectrap.modules.homology_scanner import scan
+from vectrap.modules.scorer import summarize
 
 
 # Default catalog directory bundled inside the package (populated by
@@ -20,8 +21,8 @@ from vectrap.modules.homology_scanner import scan
 _DEFAULT_CATALOG_DIR = Path(__file__).resolve().parents[2] / "vectrap" / "catalogs"
 
 
-def _write_tsv(hits, output_dir: Path) -> Path:
-    """Write hits to a TSV file and return the path."""
+def _write_hits_tsv(hits, output_dir: Path) -> Path:
+    """Write all hits to vectrap_hits.tsv and return the path."""
     out_path = output_dir / "vectrap_hits.tsv"
     fieldnames = [
         "contig", "start", "end", "strand", "length",
@@ -47,6 +48,46 @@ def _write_tsv(hits, output_dir: Path) -> Path:
                 "tier":         h.tier,
                 "confidence":   h.confidence,
                 "reasoning":    h.reasoning,
+            })
+    return out_path
+
+
+def _write_verdicts_tsv(summaries, output_dir: Path) -> Path:
+    """Write per-contig hit summaries to vectrap_verdicts.tsv and return the path."""
+    out_path = output_dir / "vectrap_verdicts.tsv"
+    fieldnames = [
+        "contig",
+        "total_hits",
+        "engineered_hits",
+        "context_dependent_hits",
+        "weak_hits",
+        "unannotated_hits",
+        "unique_feature_types",
+        "unique_labels",
+        "covered_bp",
+        "top_label",
+        "top_tier",
+        "top_confidence",
+        "evidence_summary",
+    ]
+    with open(out_path, "w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fieldnames, delimiter="\t")
+        writer.writeheader()
+        for s in summaries:
+            writer.writerow({
+                "contig":                   s.contig,
+                "total_hits":               s.total_hits,
+                "engineered_hits":          s.engineered_hits,
+                "context_dependent_hits":   s.context_dependent_hits,
+                "weak_hits":                s.weak_hits,
+                "unannotated_hits":         s.unannotated_hits,
+                "unique_feature_types":     s.unique_feature_types,
+                "unique_labels":            s.unique_labels,
+                "covered_bp":               s.covered_bp,
+                "top_label":                s.top_label,
+                "top_tier":                 s.top_tier,
+                "top_confidence":           s.top_confidence,
+                "evidence_summary":         s.evidence_summary,
             })
     return out_path
 
@@ -111,9 +152,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    input_path   = Path(args.input).resolve()
-    output_dir   = Path(args.output).resolve()
-    catalog_dir  = Path(args.catalog_dir).resolve()
+    input_path  = Path(args.input).resolve()
+    output_dir  = Path(args.output).resolve()
+    catalog_dir = Path(args.catalog_dir).resolve()
 
     if not input_path.exists():
         print(f"ERROR: input file not found: {input_path}", file=sys.stderr)
@@ -130,8 +171,13 @@ def main() -> None:
         verbose=args.verbose,
     )
 
-    out_path = _write_tsv(hits, output_dir)
-    print(f"Done. {len(hits):,} hits written to {out_path}")
+    hits_path = _write_hits_tsv(hits, output_dir)
+    print(f"  hits    : {len(hits):,} written to {hits_path}")
+
+    summaries = summarize(hits)
+    verdicts_path = _write_verdicts_tsv(summaries, output_dir)
+    print(f"  contigs : {len(summaries):,} with hits written to {verdicts_path}")
+    print("Done.")
 
 
 if __name__ == "__main__":
