@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from vectrap.modules.homology_scanner import HomologyHit
-from vectrap.modules.scorer import ContigSummary, _covered_bp
+from vectrap.modules.scorer import ContigSummary
 
 
 _SUMMARY_FIELDS = [
@@ -101,7 +101,9 @@ def build_sample_row(
     unique_ft     = len({h.feature_type for h in hits if h.feature_type})
     unique_labels = len({h.label        for h in hits if h.label})
 
-    covered = _covered_bp(hits)
+    # Fix #5: sum pre-computed covered_bp from contig summaries instead of
+    # re-merging all hit intervals across the whole sample.
+    covered      = sum(s.covered_bp for s in summaries)
     covered_frac = covered / total_bp if total_bp > 0 else 0.0
 
     # contig with highest covered_fraction
@@ -132,20 +134,7 @@ def build_sample_row(
 
 
 def write_summary(rows: list[dict], output_dir: Path) -> Path:
-    """Write *rows* to ``vectrap_summary.tsv`` in *output_dir*.
-
-    Parameters
-    ----------
-    rows : list[dict]
-        One dict per sample, as returned by ``build_sample_row()``.
-    output_dir : Path
-        Directory where the file will be written.
-
-    Returns
-    -------
-    Path
-        Absolute path to the written file.
-    """
+    """Write *rows* to ``vectrap_summary.tsv`` in *output_dir*."""
     out_path = output_dir / "vectrap_summary.tsv"
     with open(out_path, "w", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=_SUMMARY_FIELDS, delimiter="\t")

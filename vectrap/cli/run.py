@@ -25,10 +25,14 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
-from vectrap.modules.homology_scanner import scan
+from vectrap.modules.homology_scanner import (
+    build_kmer_automaton,
+    load_mappy_index,
+    scan,
+    _load_metadata,
+)
 from vectrap.modules.reporter import build_sample_row, write_summary
 from vectrap.modules.scorer import summarize
-from vectrap.modules.utils import read_fasta
 
 
 _DEFAULT_CATALOG_DIR = Path(__file__).resolve().parents[2] / "vectrap" / "catalogs"
@@ -49,7 +53,6 @@ def _elapsed(t0: float) -> str:
 
 
 def _collect_inputs(path: Path) -> list[Path]:
-    """Return a list of FASTA files to process."""
     if not path.exists():
         print(f"ERROR: input path not found: {path}", file=sys.stderr)
         sys.exit(1)
@@ -80,19 +83,14 @@ def _sample_stem(fasta_path: Path) -> str:
     return fasta_path.stem
 
 
-def _get_contig_lengths(fasta_path: Path) -> dict[str, int]:
-    return {header.split()[0]: len(seq) for header, seq in read_fasta(fasta_path)}
-
-
 def _cleanup_partial(output_dir: Path, sample: str) -> None:
-    """Remove incomplete output files left by a failed sample."""
     for name in (f"{sample}_hits.tsv", f"{sample}_contig_verdicts.tsv"):
         p = output_dir / name
         if p.exists():
             p.unlink()
 
 
-def _write_hits_tsv(hits, output_dir: Path, sample: str) -> Path:
+def _write_hits_tsv(hits, output_dir: Path, sample: str) -> None:
     out_path = output_dir / f"{sample}_hits.tsv"
     fieldnames = [
         "contig", "start", "end", "strand", "length",
@@ -119,10 +117,9 @@ def _write_hits_tsv(hits, output_dir: Path, sample: str) -> Path:
                 "confidence":   h.confidence,
                 "reasoning":    h.reasoning,
             })
-    return out_path
 
 
-def _write_verdicts_tsv(summaries, output_dir: Path, sample: str) -> Path:
+def _write_verdicts_tsv(summaries, output_dir: Path, sample: str) -> None:
     out_path = output_dir / f"{sample}_contig_verdicts.tsv"
     fieldnames = [
         "contig", "contig_length", "total_hits",
@@ -153,11 +150,9 @@ def _write_verdicts_tsv(summaries, output_dir: Path, sample: str) -> Path:
                 "top_confidence":           s.top_confidence,
                 "evidence_summary":         s.evidence_summary,
             })
-    return out_path
 
 
 def _error_row(sample: str, error_msg: str) -> dict:
-    """Return a summary row placeholder for a failed sample."""
     from vectrap.modules.reporter import _SUMMARY_FIELDS
     row = {f: "" for f in _SUMMARY_FIELDS}
     row["sample"]         = sample
@@ -178,22 +173,18 @@ def _process_one(
     verbose: bool,
     min_engineered_contamination: int,
     min_context_suspected: int,
+    aligner,
+    automaton,
+    metadata: dict,
     label: str = "",
 ) -> dict:
-    """Run the full pipeline on a single FASTA file.
-
-    Returns a summary row dict. On failure, prints a warning, cleans up
-    partial output files, and returns an ERROR row so the rest of the
-    batch continues uninterrupted.
-    """
+    """Run the full pipeline on a single FASTA file. Returns summary row dict."""
     sample = _sample_stem(input_path)
     t0 = time.time()
     prefix = f"{label} " if label else ""
 
     try:
-        contig_lengths = _get_contig_lengths(input_path)
-
-        hits = scan(
+        hits, contig_lengths = scan(
             query_fasta=input_path,
             catalog_dir=catalog_dir,
             min_identity=min_identity,
@@ -202,6 +193,9 @@ def _process_one(
             best_n=best_n,
             threads=threads,
             verbose=verbose,
+            aligner=aligner,
+            automaton=automaton,
+            metadata=metadata,
         )
 
         _write_hits_tsv(hits, output_dir, sample)
@@ -283,6 +277,18 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     n = len(fasta_files)
+
+    # --- load shared indexes once before the sample loop ---
+    mmi_path = catalog_dir / "combined_long.mmi"
+    pkl_path = catalog_dir / "short_index.pkl"
+
+    print(f"{_ts()} Loading catalog indexes ...")
+    t_load = time.time()
+    aligner   = load_mappy_index(mmi_path, best_n=args.best_n, threads=args.threads)
+    automaton = build_kmer_automaton(pkl_path)
+    metadata  = _load_metadata(catalog_dir)
+    print(f"{_ts()} Indexes ready  elapsed={_elapsed(t_load)}")
+
     if n > 1:
         print(f"{_ts()} Found {n} FASTA files in {input_path}")
 
@@ -301,6 +307,9 @@ def main() -> None:
             verbose=args.verbose,
             min_engineered_contamination=args.min_engineered_contamination,
             min_context_suspected=args.min_context_suspected,
+            aligner=aligner,
+            automaton=automaton,
+            metadata=metadata,
             label=label,
         )
         summary_rows.append(row)
