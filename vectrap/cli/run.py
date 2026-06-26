@@ -14,6 +14,7 @@ Output files (prefixed with sample name)
 -----------------------------------------
     <sample>_hits.tsv
     <sample>_contig_verdicts.tsv
+    vectrap_summary.tsv          (one row per sample)
 """
 
 import argparse
@@ -24,6 +25,7 @@ from datetime import datetime
 from pathlib import Path
 
 from vectrap.modules.homology_scanner import scan
+from vectrap.modules.reporter import build_sample_row, write_summary
 from vectrap.modules.scorer import summarize
 from vectrap.modules.utils import read_fasta
 
@@ -155,9 +157,11 @@ def _process_one(
     best_n: int,
     threads: int,
     verbose: bool,
+    min_engineered_contamination: int,
+    min_context_suspected: int,
     label: str = "",
-) -> None:
-    """Run the full pipeline on a single FASTA file."""
+) -> dict:
+    """Run the full pipeline on a single FASTA file. Returns summary row dict."""
     sample = _sample_stem(input_path)
     t0 = time.time()
 
@@ -178,12 +182,23 @@ def _process_one(
     summaries = summarize(hits, contig_lengths)
     _write_verdicts_tsv(summaries, output_dir, sample)
 
+    row = build_sample_row(
+        sample=sample,
+        hits=hits,
+        summaries=summaries,
+        contig_lengths=contig_lengths,
+        min_engineered_contamination=min_engineered_contamination,
+        min_context_suspected=min_context_suspected,
+    )
+
     prefix = f"{label} " if label else ""
     print(
         f"{_ts()} {prefix}{sample}  "
         f"hits={len(hits):,}  contigs_with_hits={len(summaries):,}  "
+        f"verdict={row['sample_verdict']}  "
         f"elapsed={_elapsed(t0)}"
     )
+    return row
 
 
 def main() -> None:
@@ -210,6 +225,13 @@ def main() -> None:
                               "Must match the value used when building the catalog indexes (default: 50)."))
     parser.add_argument("--best-n", type=int, default=10, metavar="INT",
                         help="Maximum number of mappy alignments reported per query sequence (default: 10).")
+    parser.add_argument("--min-engineered-contamination", type=int, default=3, metavar="INT",
+                        help=("Minimum number of ENGINEERED hits across a sample to call it "
+                              "CONTAMINATION (default: 3)."))
+    parser.add_argument("--min-context-suspected", type=int, default=1, metavar="INT",
+                        help=("Minimum number of CONTEXT_DEPENDENT hits to call a sample "
+                              "SUSPECTED when engineered hits are below the contamination "
+                              "threshold (default: 1)."))
     parser.add_argument("-t", "--threads", type=int, default=4, metavar="INT",
                         help="Number of threads for mappy aligner (default: 4).")
     parser.add_argument("-v", "--verbose", action="store_true",
@@ -228,9 +250,10 @@ def main() -> None:
     if n > 1:
         print(f"{_ts()} Found {n} FASTA files in {input_path}")
 
+    summary_rows = []
     for i, fasta in enumerate(fasta_files, 1):
         label = f"[{i}/{n}]" if n > 1 else ""
-        _process_one(
+        row = _process_one(
             input_path=fasta,
             output_dir=output_dir,
             catalog_dir=catalog_dir,
@@ -240,9 +263,14 @@ def main() -> None:
             best_n=args.best_n,
             threads=args.threads,
             verbose=args.verbose,
+            min_engineered_contamination=args.min_engineered_contamination,
+            min_context_suspected=args.min_context_suspected,
             label=label,
         )
+        summary_rows.append(row)
 
+    summary_path = write_summary(summary_rows, output_dir)
+    print(f"{_ts()} Summary written to {summary_path.name}")
     print(f"{_ts()} Done.")
 
 
