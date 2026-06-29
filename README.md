@@ -6,6 +6,7 @@
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
 [![Status: Active Development](https://img.shields.io/badge/status-active%20development-green.svg)]()
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20844271.svg)](https://doi.org/10.5281/zenodo.20844271)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1SgQNu6Io8EcemvO9eRmAv6h4qDMk6sVh?usp=sharing)
 
 ---
 
